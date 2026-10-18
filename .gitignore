@@ -1,0 +1,32 @@
+# environments and tool caches
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+coverage.xml
+htmlcov/
+
+# big / cluster-only artefacts (docs/results/ is committed on purpose)
+/data/
+/hf_cache/
+/models/
+/volumes/
+/logs/
+/results/
+*.safetensors
+*.bin
+*.db
+
+# notebooks
+.ipynb_checkpoints/
+
+# secrets
+.env
+*.pem
+
+# gate outputs
+/build/
