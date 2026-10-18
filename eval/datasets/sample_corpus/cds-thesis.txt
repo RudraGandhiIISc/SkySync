@@ -1,0 +1,4 @@
+Synthetic test document: CDS thesis submission rules.
+Research students in the Department of Computational and Data Sciences must submit the thesis synopsis at least three months before the thesis.
+The thesis must be examined by two external examiners, at least one from outside India.
+The plagiarism report must show less than 10 percent similarity, excluding references.
