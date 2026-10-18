@@ -1,0 +1,4 @@
+# GPU-side environment ($SERVE_VENV), separate from the project venv.
+# Pinned: change a version only together with a rerun of baseline-v1.
+vllm==0.11.0
+sentence-transformers==5.1.1
