@@ -1,0 +1,70 @@
+# The nine PRD models (FR-8). ASKIISC_MODEL selects one by key.
+# served_name is what vLLM is started with (--served-model-name) and what the
+# client sends; hf_repo is what slurm/fetch_models.sh downloads.
+# AWQ entries point at our own checkpoints made in Phase 13
+# (/data4/muthangiv/askiisc/models/<key>); they do not exist yet.
+qwen3-4b-instruct-2507:
+  hf_repo: Qwen/Qwen3-4B-Instruct-2507
+  served_name: qwen3-4b-instruct-2507
+  family: qwen3
+  size_class: 4B
+  dtype: bfloat16
+  quantization: null
+gemma-3-4b-it:
+  hf_repo: google/gemma-3-4b-it
+  served_name: gemma-3-4b-it
+  family: gemma3
+  size_class: 4B
+  dtype: bfloat16
+  quantization: null
+  gated: true
+phi-4-mini-instruct:
+  hf_repo: microsoft/Phi-4-mini-instruct
+  served_name: phi-4-mini-instruct
+  family: phi4
+  size_class: 4B
+  dtype: bfloat16
+  quantization: null
+qwen3-8b:
+  hf_repo: Qwen/Qwen3-8B
+  served_name: qwen3-8b
+  family: qwen3
+  size_class: 8B
+  dtype: bfloat16
+  quantization: null
+llama-3.1-8b-instruct:
+  hf_repo: meta-llama/Llama-3.1-8B-Instruct
+  served_name: llama-3.1-8b-instruct
+  family: llama3
+  size_class: 8B
+  dtype: bfloat16
+  quantization: null
+  gated: true
+granite-3.3-8b-instruct:
+  hf_repo: ibm-granite/granite-3.3-8b-instruct
+  served_name: granite-3.3-8b-instruct
+  family: granite
+  size_class: 8B
+  dtype: bfloat16
+  quantization: null
+qwen3-8b-awq:
+  hf_repo: local:qwen3-8b-awq
+  served_name: qwen3-8b-awq
+  family: qwen3
+  size_class: 8B-AWQ
+  dtype: float16
+  quantization: awq
+llama-3.1-8b-instruct-awq:
+  hf_repo: local:llama-3.1-8b-instruct-awq
+  served_name: llama-3.1-8b-instruct-awq
+  family: llama3
+  size_class: 8B-AWQ
+  dtype: float16
+  quantization: awq
+granite-3.3-8b-instruct-awq:
+  hf_repo: local:granite-3.3-8b-instruct-awq
+  served_name: granite-3.3-8b-instruct-awq
+  family: granite
+  size_class: 8B-AWQ
+  dtype: float16
+  quantization: awq
