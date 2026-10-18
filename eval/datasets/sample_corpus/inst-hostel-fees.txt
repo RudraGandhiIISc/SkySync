@@ -1,0 +1,4 @@
+Synthetic test document: Hostel fees.
+The hostel fee for a single room is 9,500 rupees per semester and is due by the 15th of July for the August semester.
+A late fee of 500 rupees is added for every week the hostel fee remains unpaid.
+Students may request an instalment plan from the warden before the due date.
