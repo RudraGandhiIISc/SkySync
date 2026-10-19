@@ -33,7 +33,16 @@ async def test_service_endpoints() -> None:
         )
         assert r.json()["allowed"] is True
         r = await client.post("/v1/filter", json={}, headers=_auth(token))
-        assert r.json()["doc_ids"] == ["d01", "d02", "d05", "d09", "d12", "d14"]
+        assert r.json()["doc_ids"] == [
+            "d01",
+            "d02",
+            "d05",
+            "d09",
+            "d12",
+            "d14",
+            "d21",
+            "d22",
+        ]
         r = await client.post(
             "/v1/filter", json={"at": 3000.0}, headers=_auth(token)
         )
@@ -96,7 +105,7 @@ async def test_http_client_against_service() -> None:
         assert await client.authorize(token, DocId("d04"))
         assert not await client.authorize(token, DocId("d02"))
         result = await client.filter(token)
-        assert result.doc_ids == {"d01", "d03", "d04", "d17"}
+        assert result.doc_ids == {"d01", "d03", "d04", "d17", "d21", "d22"}
         with pytest.raises(AccessDenied):
             await client.filter("garbage")
 

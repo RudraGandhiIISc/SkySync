@@ -37,7 +37,7 @@ async def test_answered_with_valid_citation() -> None:
     cited = answer["citations"][0]["chunk_id"]  # type: ignore[index]
     retrieved = [c for c, _ in answer["retrieved"]]  # type: ignore[union-attr]
     assert cited == retrieved[0]
-    readable = {"d01", "d02", "d05", "d09", "d12", "d14"}
+    readable = {"d01", "d02", "d05", "d09", "d12", "d14", "d21", "d22"}
     assert {d for _, d in answer["retrieved"]} <= readable  # type: ignore[union-attr]
     record = stack.audit.records[-1]
     assert record.decision == "answered"
@@ -59,7 +59,8 @@ async def test_unknown_user_abstains_and_no_token_is_401() -> None:
 
 async def test_no_readable_chunks_abstains() -> None:
     stack = build()
-    stack.w.policies.delete(DocId("d13"))
+    for doc in ("d13", "d21", "d22"):  # all u_guest can read
+        stack.w.policies.delete(DocId(doc))
     r = await stack.ask("u_guest", QUESTION)
     answer = final(r)
     assert answer["abstained"] and answer["citations"] == []

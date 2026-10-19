@@ -8,6 +8,7 @@ caller whose directory role is "admin".
 from __future__ import annotations
 
 import time
+from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -42,6 +43,7 @@ class FilterRequest(_Body):
 class PolicyBody(_Body):
     """PUT /v1/policy/{doc_id} body (DocPolicy without the id)."""
 
+    visibility: Literal["public", "restricted"] = "restricted"
     groups: frozenset[str] = frozenset()
     departments: frozenset[str] = frozenset()
     roles: frozenset[str] = frozenset()

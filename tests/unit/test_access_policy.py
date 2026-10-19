@@ -150,3 +150,64 @@ def test_check_run_catches_injected_leak_and_false_deny() -> None:
         ("false_allow", "u_guest", "d02"),
         ("false_deny", "u_admin", "d07"),
     ]
+
+
+def _write(root: Path, rel: str, records: object) -> None:
+    import json
+
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(records))
+
+
+def test_directory_tree_takes_department_and_role_from_path(
+    tmp_path: Path,
+) -> None:
+    _write(
+        tmp_path, "cds/faculty.json", [{"user_id": "f1", "groups": ["hpc-lab"]}]
+    )
+    _write(tmp_path, "csa/admins.json", [{"user_id": "a1"}])
+    directory = Directory()
+    assert directory.load(tmp_path) == 2
+    f1 = directory.get(UserId("f1"))
+    assert f1 == Person(
+        UserId("f1"), "cds", "faculty", frozenset({"hpc-lab", "cds-faculty"})
+    )
+    a1 = directory.get(UserId("a1"))
+    assert a1 is not None and a1.role == "admin"
+
+
+@pytest.mark.parametrize(
+    ("rel", "records", "message"),
+    [
+        ("cds/visitors.json", [{"user_id": "x"}], "unknown role file"),
+        (
+            "cds/staff.json",
+            [{"user_id": "x", "role": "faculty"}],
+            "contradicts",
+        ),
+        (
+            "cds/staff.json",
+            [{"user_id": "x", "department": "csa"}],
+            "contradicts",
+        ),
+        ("cds/staff.json", [{"no_id": 1}], "malformed"),
+        ("cds/staff.json", [{"user_id": "x"}, {"user_id": "x"}], "duplicate"),
+    ],
+)
+def test_bad_directory_trees_are_rejected(
+    tmp_path: Path, rel: str, records: object, message: str
+) -> None:
+    _write(tmp_path, rel, records)
+    with pytest.raises(ConfigError, match=message):
+        Directory().load(tmp_path)
+
+
+def test_public_visibility_still_respects_deny_and_window() -> None:
+    person = Person(UserId("u"), "cds", "student", frozenset())
+    public = DocPolicy(doc_id=DocId("p"), visibility="public")
+    assert evaluate(person, public, 0.0) == (True, "public")
+    denied = public.model_copy(update={"deny_users": frozenset({UserId("u")})})
+    assert evaluate(person, denied, 0.0)[0] is False
+    embargo = public.model_copy(update={"valid_from": 10.0})
+    assert evaluate(person, embargo, 0.0)[0] is False

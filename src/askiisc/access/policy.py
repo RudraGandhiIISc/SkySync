@@ -1,5 +1,10 @@
 """The access policy engine (FR-3, NFR-10). Pure logic, no I/O.
 
+Visibility: "public" documents are readable by every user in the IISc
+directory (they are on the open web anyway); "restricted" documents (the
+default) need a matching rule. Only directory users can reach the service
+at all, so "public" never means anonymous.
+
 Rules per document: allowed groups, departments and roles; an optional
 validity window [valid_from, valid_until); per-user allow and deny lists.
 Deny overrides allow. Unknown users, unknown documents, malformed policies
@@ -11,6 +16,7 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -26,6 +32,7 @@ class DocPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     doc_id: DocId
+    visibility: Literal["public", "restricted"] = "restricted"
     groups: frozenset[str] = frozenset()
     departments: frozenset[str] = frozenset()
     roles: frozenset[str] = frozenset()
@@ -109,6 +116,8 @@ def evaluate(person: Person, policy: DocPolicy, at: float) -> tuple[bool, str]:
         return False, "user denied"
     if not _in_window(policy, at):
         return False, "outside validity window"
+    if policy.visibility == "public":
+        return True, "public"
     if person.user_id in policy.allow_users:
         return True, "user allowed"
     if person.groups & policy.groups:

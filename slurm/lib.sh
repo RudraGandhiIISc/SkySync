@@ -14,8 +14,8 @@ export PATH="$HOME/.local/bin:$ASKIISC_SCRATCH/bin:$PATH"
 umask 077
 # Real users live only in this private file, never in git.
 if [ -z "${ASKIISC_DIRECTORY_PATH:-}" ] && \
-   [ -f "$ASKIISC_DATA/private/directory.json" ]; then
-  export ASKIISC_DIRECTORY_PATH="$ASKIISC_DATA/private/directory.json"
+   [ -d "$ASKIISC_DATA/private/users" ]; then
+  export ASKIISC_DIRECTORY_PATH="$ASKIISC_DATA/private/users"
 fi
 
 # pick_gpu [exclude_csv]

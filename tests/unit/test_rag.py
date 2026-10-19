@@ -91,7 +91,7 @@ async def test_answer_cites_only_allowed_chunks() -> None:
     answer, prepared = await answerer.answer(
         w.token("u_ece_fac"), "hostel fees"
     )
-    allowed = {"d01", "d03", "d04", "d17"}
+    allowed = {"d01", "d03", "d04", "d17", "d21", "d22"}
     assert {c.doc_id for c in prepared.chunks} <= allowed
     assert len(answer.citations) == 1
     assert answer.citations[0].chunk_id == prepared.chunks[0].id

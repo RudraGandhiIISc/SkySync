@@ -52,6 +52,8 @@ def oracle_allows(
         return False
     if end is not None and at >= end:
         return False
+    if policy.get("visibility", "restricted") == "public":
+        return True
     if user_id in list(policy.get("allow_users", [])):
         return True
     for group in person.get("groups", []):

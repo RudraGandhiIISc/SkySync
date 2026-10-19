@@ -2,6 +2,14 @@
 
 The export is JSON (a list of objects) or CSV with the columns user_id,
 department, role, groups; CSV groups are separated by semicolons.
+
+It can also be a folder tree, one file per department and role:
+
+    users/<department>/<students|faculty|staff|admins>.json
+
+where department and role come from the path, and every user also gets
+the group "<department>-<file stem>" (for example "cds-faculty"), so a
+policy can name an intersection such as "CDS faculty" with one group.
 """
 
 from __future__ import annotations
@@ -45,6 +53,60 @@ def _person(record: Mapping[str, object]) -> Person:
     )
 
 
+ROLE_FILES = {
+    "students": "student",
+    "faculty": "faculty",
+    "staff": "staff",
+    "admins": "admin",
+}
+
+
+def _tree_person(
+    record: Mapping[str, object], department: str, stem: str
+) -> Person:
+    role = ROLE_FILES[stem]
+    for key, value in (("department", department), ("role", role)):
+        if key in record and record[key] != value:
+            raise ConfigError(
+                f"{record.get('user_id')}: {key} {record[key]!r} contradicts "
+                f"its folder ({value!r})"
+            )
+    person = _person({**record, "department": department, "role": role})
+    groups = person.groups | {f"{department}-{stem}"}
+    return Person(person.user_id, department, role, groups)
+
+
+def parse_tree(root: Path) -> dict[UserId, Person]:
+    """Reads a users/<department>/<role>.json folder tree.
+
+    Args:
+        root: The users folder.
+
+    Returns:
+        People by user id.
+
+    Raises:
+        ConfigError: On an unknown role file, a record that contradicts its
+            folder, a duplicate user id, or malformed JSON.
+    """
+    people: dict[UserId, Person] = {}
+    for path in sorted(root.glob("*/*.json")):
+        if path.stem not in ROLE_FILES:
+            raise ConfigError(f"unknown role file {path.name}")
+        try:
+            records = json.loads(path.read_text())
+            batch = [
+                _tree_person(r, path.parent.name, path.stem) for r in records
+            ]
+        except (ValueError, KeyError, TypeError, AttributeError) as err:
+            raise ConfigError(f"malformed {path}: {err}") from err
+        for person in batch:
+            if person.user_id in people:
+                raise ConfigError(f"duplicate user {person.user_id}")
+            people[person.user_id] = person
+    return people
+
+
 def parse_export(text: str, fmt: str) -> dict[UserId, Person]:
     """Parses a directory export.
 
@@ -84,16 +146,19 @@ class Directory:
         return cls({p.user_id: p for p in map(_person, records)})
 
     def load(self, path: Path) -> int:
-        """Replaces the contents from an export file.
+        """Replaces the contents from an export file or folder tree.
 
         Args:
-            path: A .json or .csv export.
+            path: A .json or .csv export, or a users folder tree.
 
         Returns:
             The number of people loaded.
         """
-        fmt = path.suffix.lstrip(".").lower()
-        people = parse_export(path.read_text(), fmt)
+        if path.is_dir():
+            people = parse_tree(path)
+        else:
+            fmt = path.suffix.lstrip(".").lower()
+            people = parse_export(path.read_text(), fmt)
         with self._lock:
             self._people = people
         return len(people)

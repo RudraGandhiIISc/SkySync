@@ -1,51 +1,270 @@
 {
-  "comment": "FR-3 test matrix: 10 users x 20 documents = 200 cases at time `at`. expected[user][i] is 1 if the user may read doc i+1. Hand-derived from the rules; both the engine and the independent oracle must agree with it.",
+  "comment": "FR-3 test matrix: 10 users x 22 documents = 220 cases at time `at`. expected[user][i] is 1 if the user may read doc i+1. Hand-derived from the rules; both the engine and the independent oracle must agree with it.",
   "at": 1000.0,
   "directory": [
-    {"user_id": "u_cds_stu", "department": "cds", "role": "student", "groups": ["students"]},
-    {"user_id": "u_cds_fac", "department": "cds", "role": "faculty", "groups": ["faculty"]},
-    {"user_id": "u_ece_stu", "department": "ece", "role": "student", "groups": ["students"]},
-    {"user_id": "u_ece_fac", "department": "ece", "role": "faculty", "groups": ["faculty"]},
-    {"user_id": "u_admin", "department": "admin_office", "role": "admin", "groups": ["staff"]},
-    {"user_id": "u_staff", "department": "accounts", "role": "staff", "groups": ["staff"]},
-    {"user_id": "u_phd", "department": "cds", "role": "student", "groups": ["students", "phd"]},
-    {"user_id": "u_guest", "department": "guest", "role": "guest", "groups": []},
-    {"user_id": "u_banned", "department": "cds", "role": "student", "groups": ["students"]},
-    {"user_id": "u_hostel", "department": "ece", "role": "student", "groups": ["students", "hostel_committee"]}
+    {
+      "user_id": "u_cds_stu",
+      "department": "cds",
+      "role": "student",
+      "groups": [
+        "students"
+      ]
+    },
+    {
+      "user_id": "u_cds_fac",
+      "department": "cds",
+      "role": "faculty",
+      "groups": [
+        "faculty"
+      ]
+    },
+    {
+      "user_id": "u_ece_stu",
+      "department": "ece",
+      "role": "student",
+      "groups": [
+        "students"
+      ]
+    },
+    {
+      "user_id": "u_ece_fac",
+      "department": "ece",
+      "role": "faculty",
+      "groups": [
+        "faculty"
+      ]
+    },
+    {
+      "user_id": "u_admin",
+      "department": "admin_office",
+      "role": "admin",
+      "groups": [
+        "staff"
+      ]
+    },
+    {
+      "user_id": "u_staff",
+      "department": "accounts",
+      "role": "staff",
+      "groups": [
+        "staff"
+      ]
+    },
+    {
+      "user_id": "u_phd",
+      "department": "cds",
+      "role": "student",
+      "groups": [
+        "students",
+        "phd"
+      ]
+    },
+    {
+      "user_id": "u_guest",
+      "department": "guest",
+      "role": "guest",
+      "groups": []
+    },
+    {
+      "user_id": "u_banned",
+      "department": "cds",
+      "role": "student",
+      "groups": [
+        "students"
+      ]
+    },
+    {
+      "user_id": "u_hostel",
+      "department": "ece",
+      "role": "student",
+      "groups": [
+        "students",
+        "hostel_committee"
+      ]
+    }
   ],
   "policies": [
-    {"doc_id": "d01", "groups": ["students", "faculty", "staff"]},
-    {"doc_id": "d02", "departments": ["cds"]},
-    {"doc_id": "d03", "departments": ["ece"]},
-    {"doc_id": "d04", "groups": ["faculty"]},
-    {"doc_id": "d05", "groups": ["students"]},
-    {"doc_id": "d06", "groups": ["staff"]},
-    {"doc_id": "d07", "roles": ["admin"]},
-    {"doc_id": "d08", "groups": ["phd"]},
-    {"doc_id": "d09", "departments": ["cds"], "deny_users": ["u_banned"]},
-    {"doc_id": "d10", "groups": ["students"], "valid_from": 2000.0},
-    {"doc_id": "d11", "groups": ["students"], "valid_until": 500.0},
-    {"doc_id": "d12", "groups": ["students"], "valid_from": 500.0, "valid_until": 1500.0},
-    {"doc_id": "d13", "allow_users": ["u_guest"]},
-    {"doc_id": "d14", "groups": ["students"], "allow_users": ["u_banned"], "deny_users": ["u_banned"]},
-    {"doc_id": "d15"},
-    {"doc_id": "d16", "groups": ["hostel_committee"]},
-    {"doc_id": "d17", "departments": ["ece"], "roles": ["faculty"]},
-    {"doc_id": "d18", "groups": ["faculty", "staff"], "deny_users": ["u_cds_fac", "u_ece_fac"]},
-    {"doc_id": "d20", "groups": ["students"], "valid_until": 1000.0}
+    {
+      "doc_id": "d01",
+      "groups": [
+        "students",
+        "faculty",
+        "staff"
+      ]
+    },
+    {
+      "doc_id": "d02",
+      "departments": [
+        "cds"
+      ]
+    },
+    {
+      "doc_id": "d03",
+      "departments": [
+        "ece"
+      ]
+    },
+    {
+      "doc_id": "d04",
+      "groups": [
+        "faculty"
+      ]
+    },
+    {
+      "doc_id": "d05",
+      "groups": [
+        "students"
+      ]
+    },
+    {
+      "doc_id": "d06",
+      "groups": [
+        "staff"
+      ]
+    },
+    {
+      "doc_id": "d07",
+      "roles": [
+        "admin"
+      ]
+    },
+    {
+      "doc_id": "d08",
+      "groups": [
+        "phd"
+      ]
+    },
+    {
+      "doc_id": "d09",
+      "departments": [
+        "cds"
+      ],
+      "deny_users": [
+        "u_banned"
+      ]
+    },
+    {
+      "doc_id": "d10",
+      "groups": [
+        "students"
+      ],
+      "valid_from": 2000.0
+    },
+    {
+      "doc_id": "d11",
+      "groups": [
+        "students"
+      ],
+      "valid_until": 500.0
+    },
+    {
+      "doc_id": "d12",
+      "groups": [
+        "students"
+      ],
+      "valid_from": 500.0,
+      "valid_until": 1500.0
+    },
+    {
+      "doc_id": "d13",
+      "allow_users": [
+        "u_guest"
+      ]
+    },
+    {
+      "doc_id": "d14",
+      "groups": [
+        "students"
+      ],
+      "allow_users": [
+        "u_banned"
+      ],
+      "deny_users": [
+        "u_banned"
+      ]
+    },
+    {
+      "doc_id": "d15"
+    },
+    {
+      "doc_id": "d16",
+      "groups": [
+        "hostel_committee"
+      ]
+    },
+    {
+      "doc_id": "d17",
+      "departments": [
+        "ece"
+      ],
+      "roles": [
+        "faculty"
+      ]
+    },
+    {
+      "doc_id": "d18",
+      "groups": [
+        "faculty",
+        "staff"
+      ],
+      "deny_users": [
+        "u_cds_fac",
+        "u_ece_fac"
+      ]
+    },
+    {
+      "doc_id": "d20",
+      "groups": [
+        "students"
+      ],
+      "valid_until": 1000.0
+    },
+    {
+      "doc_id": "d21",
+      "visibility": "public"
+    },
+    {
+      "doc_id": "d22",
+      "visibility": "public",
+      "deny_users": [
+        "u_banned"
+      ]
+    }
   ],
-  "documents": ["d01", "d02", "d03", "d04", "d05", "d06", "d07", "d08", "d09", "d10",
-                "d11", "d12", "d13", "d14", "d15", "d16", "d17", "d18", "d19", "d20"],
+  "documents": [
+    "d01",
+    "d02",
+    "d03",
+    "d04",
+    "d05",
+    "d06",
+    "d07",
+    "d08",
+    "d09",
+    "d10",
+    "d11",
+    "d12",
+    "d13",
+    "d14",
+    "d15",
+    "d16",
+    "d17",
+    "d18",
+    "d19",
+    "d20",
+    "d21",
+    "d22"
+  ],
   "expected": {
-    "u_cds_stu": "11001000100101000000",
-    "u_cds_fac": "11010000100000001000",
-    "u_ece_stu": "10101000000101001000",
-    "u_ece_fac": "10110000000000001000",
-    "u_admin":   "10000110000000000100",
-    "u_staff":   "10000100000000000100",
-    "u_phd":     "11001001100101000000",
-    "u_guest":   "00000000000010000000",
-    "u_banned":  "11001000000100000000",
-    "u_hostel":  "10101000000101011000"
+    "u_cds_stu": "1100100010010100000011",
+    "u_cds_fac": "1101000010000000100011",
+    "u_ece_stu": "1010100000010100100011",
+    "u_ece_fac": "1011000000000000100011",
+    "u_admin": "1000011000000000010011",
+    "u_staff": "1000010000000000010011",
+    "u_phd": "1100100110010100000011",
+    "u_guest": "0000000000001000000011",
+    "u_banned": "1100100000010000000010",
+    "u_hostel": "1010100000010101100011"
   }
 }
