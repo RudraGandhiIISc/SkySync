@@ -36,7 +36,7 @@
     },
     {
       "user_id": "u_admin",
-      "department": "admin_office",
+      "department": "institute",
       "role": "admin",
       "groups": [
         "staff"

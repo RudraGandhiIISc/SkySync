@@ -26,12 +26,28 @@ from askiisc.common.types import DocId, UserId
 _LOG = logging.getLogger(__name__)
 
 
+INSTITUTE = "institute"
+"""Owner of institute-wide documents; its admins may manage any policy."""
+
+
+def may_manage(person: Person | None, owner: str) -> bool:
+    """Whether a person may change policies of documents owned by `owner`.
+
+    Admins manage their own department's documents; institute admins
+    manage every document.
+    """
+    if person is None or person.role != "admin":
+        return False
+    return person.department in {owner, INSTITUTE}
+
+
 class DocPolicy(BaseModel):
     """Who may read one document."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     doc_id: DocId
+    owner: str = INSTITUTE
     visibility: Literal["public", "restricted"] = "restricted"
     groups: frozenset[str] = frozenset()
     departments: frozenset[str] = frozenset()

@@ -167,8 +167,9 @@ def test_directory_tree_takes_department_and_role_from_path(
         tmp_path, "cds/faculty.json", [{"user_id": "f1", "groups": ["hpc-lab"]}]
     )
     _write(tmp_path, "csa/admins.json", [{"user_id": "a1"}])
+    _write(tmp_path, "cds/admins.json", [{"user_id": "a2"}])
     directory = Directory()
-    assert directory.load(tmp_path) == 2
+    assert directory.load(tmp_path) == 3
     f1 = directory.get(UserId("f1"))
     assert f1 == Person(
         UserId("f1"), "cds", "faculty", frozenset({"hpc-lab", "cds-faculty"})
@@ -211,3 +212,24 @@ def test_public_visibility_still_respects_deny_and_window() -> None:
     assert evaluate(person, denied, 0.0)[0] is False
     embargo = public.model_copy(update={"valid_from": 10.0})
     assert evaluate(person, embargo, 0.0)[0] is False
+
+
+def test_every_department_needs_an_admin(tmp_path: Path) -> None:
+    _write(tmp_path, "cds/students.json", [{"user_id": "s1"}])
+    _write(tmp_path, "csa/admins.json", [{"user_id": "a1"}])
+    with pytest.raises(ConfigError, match=r"without an admin: \['cds'\]"):
+        Directory().load(tmp_path)
+
+
+def test_who_may_manage_which_documents() -> None:
+    from askiisc.access.policy import may_manage
+
+    cds_admin = Person(UserId("a"), "cds", "admin", frozenset())
+    inst_admin = Person(UserId("i"), "institute", "admin", frozenset())
+    cds_faculty = Person(UserId("f"), "cds", "faculty", frozenset())
+    assert may_manage(cds_admin, "cds")
+    assert not may_manage(cds_admin, "csa")
+    assert not may_manage(cds_admin, "institute")
+    assert may_manage(inst_admin, "csa") and may_manage(inst_admin, "institute")
+    assert not may_manage(cds_faculty, "cds")
+    assert not may_manage(None, "cds")

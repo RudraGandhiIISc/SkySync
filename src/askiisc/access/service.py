@@ -1,8 +1,8 @@
 """The standalone access-control service (FR-4).
 
 The caller passes the user's verified SSO token; the user id comes only
-from that token, never from the request body. Policy changes require a
-caller whose directory role is "admin".
+from that token, never from the request body. Policy changes require an
+admin of the document's owning department, or an institute admin.
 """
 
 from __future__ import annotations
@@ -14,13 +14,17 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict
 
 from askiisc.access.directory import Directory
-from askiisc.access.policy import DocPolicy, PolicyEngine, PolicyStore
+from askiisc.access.policy import (
+    INSTITUTE,
+    DocPolicy,
+    PolicyEngine,
+    PolicyStore,
+    may_manage,
+)
 from askiisc.common.clock import Clock
 from askiisc.common.errors import AuthError
 from askiisc.common.tokens import TokenVerifier
 from askiisc.common.types import DocId, UserId
-
-ADMIN_ROLE = "admin"
 
 
 class _Body(BaseModel):
@@ -43,6 +47,7 @@ class FilterRequest(_Body):
 class PolicyBody(_Body):
     """PUT /v1/policy/{doc_id} body (DocPolicy without the id)."""
 
+    owner: str = INSTITUTE
     visibility: Literal["public", "restricted"] = "restricted"
     groups: frozenset[str] = frozenset()
     departments: frozenset[str] = frozenset()
@@ -82,11 +87,12 @@ def create_app(
         except AuthError as err:
             raise HTTPException(status_code=401, detail="bad token") from err
 
-    def admin(user: UserId = Depends(caller)) -> UserId:  # noqa: B008
+    def require_manager(user: UserId, owners: set[str]) -> None:
         person = directory.get(user)
-        if person is None or person.role != ADMIN_ROLE:
-            raise HTTPException(status_code=403, detail="admin only")
-        return user
+        if not all(may_manage(person, owner) for owner in owners):
+            raise HTTPException(
+                status_code=403, detail="admin of the owning department only"
+            )
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -120,20 +126,28 @@ def create_app(
             "elapsed_ms": (time.perf_counter() - started) * 1e3,
         }
 
+    def current_owner(doc_id: DocId) -> set[str]:
+        existing = policies.snapshot()[1].get(doc_id)
+        return set() if existing is None else {existing.owner}
+
     @app.put("/v1/policy/{doc_id}")
     async def put_policy(
         doc_id: DocId,
         body: PolicyBody,
-        _: UserId = Depends(admin),  # noqa: B008
+        user: UserId = Depends(caller),  # noqa: B008
     ) -> dict[str, int]:
+        # Both the current and the new owner's admin rights are needed, so
+        # nobody can take over another department's document.
+        require_manager(user, current_owner(doc_id) | {body.owner})
         policy = DocPolicy(doc_id=doc_id, **body.model_dump())
         return {"policy_version": policies.put(policy)}
 
     @app.delete("/v1/policy/{doc_id}")
     async def revoke(
         doc_id: DocId,
-        _: UserId = Depends(admin),  # noqa: B008
+        user: UserId = Depends(caller),  # noqa: B008
     ) -> dict[str, int]:
+        require_manager(user, current_owner(doc_id) or {INSTITUTE})
         return {"policy_version": policies.delete(doc_id)}
 
     return app

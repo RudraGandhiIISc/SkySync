@@ -36,6 +36,8 @@ async def test_corpus_policies_and_source(tmp_path: Path) -> None:
     minutes = by_id[DocId("cds-minutes")].policy
     assert minutes.visibility == "restricted"
     assert minutes.groups == {"cds-faculty"}
+    assert minutes.owner == "cds"
+    assert by_id[DocId("cds-index-1")].policy.owner == "institute"
     rows = json.loads(write_policies(tmp_path, docs).read_text())
     assert {r["doc_id"]: r["visibility"] for r in rows} == {
         "cds-index-1": "public",
@@ -60,6 +62,7 @@ def test_empty_corpus(tmp_path: Path) -> None:
         ("{}", "needs a rule"),
         ('{"groups": [], "roles": []}', "needs a rule"),
         ('{"groups": ["g"], "visibility": "public"}', "come from the path"),
+        ('{"groups": ["g"], "owner": "csa"}', "come from the path"),
         ('{"groups": ["g"], "colour": "red"}', "malformed"),
         ("not json", "malformed"),
     ],

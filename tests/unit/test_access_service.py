@@ -201,3 +201,53 @@ def test_verifier_rejects_wrong_audience_and_missing_subject() -> None:
     blank = w.issuer.issue("", w.clock.now() + 60)
     with pytest.raises(AuthError):
         verifier.verify(blank)
+
+
+async def test_department_admins_manage_only_their_documents() -> None:
+    from askiisc.access.directory import Directory
+    from askiisc.access.policy import DocPolicy, PolicyStore
+
+    w = world()
+    directory = Directory.from_records(
+        [
+            {"user_id": "adm_cds", "department": "cds", "role": "admin"},
+            {"user_id": "adm_csa", "department": "csa", "role": "admin"},
+            {"user_id": "adm_inst", "department": "institute", "role": "admin"},
+        ]
+    )
+    store = PolicyStore(
+        [
+            DocPolicy(
+                doc_id=DocId("cds-doc"),
+                owner="cds",
+                departments=frozenset({"cds"}),
+            )
+        ]
+    )
+    app = create_app(directory, store, w.issuer.verifier(w.clock), w.clock)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://a") as c:
+
+        async def put(user: str, doc: str, owner: str) -> int:
+            body = {"owner": owner, "departments": [owner]}
+            r = await c.put(
+                f"/v1/policy/{doc}", json=body, headers=_auth(w.token(user))
+            )
+            return r.status_code
+
+        async def delete(user: str, doc: str) -> int:
+            r = await c.delete(
+                f"/v1/policy/{doc}", headers=_auth(w.token(user))
+            )
+            return r.status_code
+
+        assert await put("adm_csa", "cds-doc", "cds") == 403
+        assert await put("adm_csa", "cds-doc", "csa") == 403  # no takeover
+        assert await put("adm_cds", "cds-doc", "cds") == 200
+        assert await put("adm_csa", "csa-new", "csa") == 200
+        assert await put("adm_cds", "csa-new", "csa") == 403
+        assert await put("adm_inst", "csa-new", "csa") == 200
+        assert await delete("adm_cds", "csa-new") == 403
+        assert await delete("adm_csa", "csa-new") == 200
+        assert await delete("adm_cds", "never-existed") == 403
+        assert await delete("adm_inst", "never-existed") == 200

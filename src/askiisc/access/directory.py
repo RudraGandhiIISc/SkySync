@@ -87,7 +87,8 @@ def parse_tree(root: Path) -> dict[UserId, Person]:
 
     Raises:
         ConfigError: On an unknown role file, a record that contradicts its
-            folder, a duplicate user id, or malformed JSON.
+            folder, a duplicate user id, malformed JSON, or a department
+            with no admin (every department needs its own admin).
     """
     people: dict[UserId, Person] = {}
     for path in sorted(root.glob("*/*.json")):
@@ -104,6 +105,10 @@ def parse_tree(root: Path) -> dict[UserId, Person]:
             if person.user_id in people:
                 raise ConfigError(f"duplicate user {person.user_id}")
             people[person.user_id] = person
+    departments = {p.department for p in people.values()}
+    with_admin = {p.department for p in people.values() if p.role == "admin"}
+    if missing := sorted(departments - with_admin):
+        raise ConfigError(f"departments without an admin: {missing}")
     return people
 
 

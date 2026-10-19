@@ -52,7 +52,11 @@ def _public(root: Path) -> list[CorpusDoc]:
     docs = []
     for line in manifest.read_text().splitlines():
         entry = json.loads(line)
-        policy = DocPolicy(doc_id=DocId(entry["doc_id"]), visibility="public")
+        policy = DocPolicy(
+            doc_id=DocId(entry["doc_id"]),
+            owner=entry.get("department", "institute"),
+            visibility="public",
+        )
         docs.append(CorpusDoc(root / entry["path"], policy, entry.get("etag")))
     return docs
 
@@ -64,8 +68,10 @@ def _restricted(root: Path) -> list[CorpusDoc]:
         rules = json.loads(rules_path.read_text())
         if not any(rules.get(f) for f in RULE_FIELDS):
             raise ConfigError(f"{doc_id}: restricted document needs a rule")
-        if "visibility" in rules or "doc_id" in rules:
-            raise ConfigError(f"{doc_id}: id and visibility come from the path")
+        if {"visibility", "doc_id", "owner"} & set(rules):
+            raise ConfigError(
+                f"{doc_id}: id, owner and visibility come from the path"
+            )
         body = [
             p
             for p in rules_path.parent.glob(f"{doc_id}.*")
@@ -74,7 +80,10 @@ def _restricted(root: Path) -> list[CorpusDoc]:
         if len(body) != 1:
             raise ConfigError(f"{doc_id}: expected one document file")
         policy = DocPolicy(
-            doc_id=DocId(doc_id), visibility="restricted", **rules
+            doc_id=DocId(doc_id),
+            owner=rules_path.parent.name,
+            visibility="restricted",
+            **rules,
         )
         docs.append(CorpusDoc(body[0], policy))
     return docs
