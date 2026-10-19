@@ -108,3 +108,13 @@ def test_no_secrets_committed() -> None:
         text = path.read_text(errors="ignore")
         for pattern in patterns:
             assert not re.search(pattern, text), f"{pattern} in {path}"
+
+
+def test_no_real_user_ids_in_code_or_data() -> None:
+    """Real users live only in the private directory file on the server."""
+    email = re.compile(r"[\w.+-]+@iisc\.ac\.in")
+    for folder in ("src", "deploy", "slurm", "eval", "tests", "tools"):
+        for path in ROOT.joinpath(folder).rglob("*"):
+            if path.is_file() and "__pycache__" not in path.parts:
+                found = email.findall(path.read_text(errors="ignore"))
+                assert not found, f"{found} in {path}"

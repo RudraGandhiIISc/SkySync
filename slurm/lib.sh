@@ -10,6 +10,14 @@ export UV_CACHE_DIR="$ASKIISC_SCRATCH/uv-cache"
 export SERVE_VENV="$ASKIISC_SCRATCH/serve-venv"
 export PATH="$HOME/.local/bin:$ASKIISC_SCRATCH/bin:$PATH"
 
+# Everything a job writes is readable only by you (shared server).
+umask 077
+# Real users live only in this private file, never in git.
+if [ -z "${ASKIISC_DIRECTORY_PATH:-}" ] && \
+   [ -f "$ASKIISC_DATA/private/directory.json" ]; then
+  export ASKIISC_DIRECTORY_PATH="$ASKIISC_DATA/private/directory.json"
+fi
+
 # pick_gpu [exclude_csv]
 # Prints "<index> <free_MiB> <total_MiB>" for the least busy H200, ordered by
 # utilisation and then free memory. Slurm reserves no GPU here (Gres=(null)),

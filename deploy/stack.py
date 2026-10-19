@@ -132,11 +132,23 @@ async def embed_server(run_dir: Path, port: int) -> AsyncIterator[str]:
         await proc.wait()
 
 
-def load_world() -> tuple[Directory, PolicyStore]:
-    """Loads the sample directory and policies."""
-    directory = Directory.from_records(
-        json.loads((DATASETS / "sample_directory.json").read_text())
-    )
+def load_world(
+    directory_path: str = "",
+) -> tuple[Directory, PolicyStore]:
+    """Loads the directory and the sample policies.
+
+    Args:
+        directory_path: The private directory export
+            (ASKIISC_DIRECTORY_PATH). Real users live only there, never in
+            git; empty means the fake sample users.
+    """
+    if directory_path:
+        directory = Directory()
+        directory.load(Path(directory_path))
+    else:
+        directory = Directory.from_records(
+            json.loads((DATASETS / "sample_directory.json").read_text())
+        )
     raw = json.loads((DATASETS / "sample_policies.json").read_text())
     return directory, PolicyStore([DocPolicy(**p) for p in raw])
 
@@ -215,7 +227,7 @@ async def run(run_dir: Path, corpus: Path) -> int:
     settings = Settings()
     clock = SystemClock()
     issuer = TokenIssuer()
-    directory, policies = load_world()
+    directory, policies = load_world(settings.directory_path)
     ports = {k: free_port() for k in ("embed", "access", "gateway")}
     (run_dir / "ports.json").write_text(json.dumps(ports))
     async with (

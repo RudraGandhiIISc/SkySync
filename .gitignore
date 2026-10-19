@@ -24,7 +24,9 @@ htmlcov/
 # notebooks
 .ipynb_checkpoints/
 
-# secrets
+# secrets and real user data (kept in /data4/muthangiv/askiisc/private)
+private/
+*.private.json
 .env
 *.pem
 
