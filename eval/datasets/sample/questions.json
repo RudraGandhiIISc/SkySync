@@ -1,0 +1,68 @@
+[
+ {
+  "id": "q1",
+  "user": "stu_cds",
+  "question": "What minimum attendance do I need to write the end-semester exam?",
+  "expect_doc": "inst-attendance"
+ },
+ {
+  "id": "q2",
+  "user": "stu_cds",
+  "question": "When is the hostel fee due and what is the late fee?",
+  "expect_doc": "inst-hostel-fees"
+ },
+ {
+  "id": "q3",
+  "user": "stu_cds",
+  "question": "How many external examiners does a CDS thesis need?",
+  "expect_doc": "cds-thesis"
+ },
+ {
+  "id": "q4",
+  "user": "stu_ece",
+  "question": "How many external examiners does a CDS thesis need?",
+  "expect_doc": null
+ },
+ {
+  "id": "q5",
+  "user": "stu_cds",
+  "question": "What is the daily allowance for staff duty travel?",
+  "expect_doc": null
+ },
+ {
+  "id": "q6",
+  "user": "staff_acc",
+  "question": "What is the daily allowance for staff duty travel?",
+  "expect_doc": "staff-travel"
+ },
+ {
+  "id": "q7",
+  "user": "stu_cds",
+  "question": "Who won the football world cup in 2022?",
+  "expect_doc": null
+ },
+ {
+  "id": "q8",
+  "user": "fac_cds",
+  "question": "When does the faculty promotion committee meet?",
+  "expect_doc": "fac-promotion"
+ },
+ {
+  "id": "q9",
+  "user": "stu_csa",
+  "question": "What do I need to apply for the PhD programme?",
+  "expect_doc": "inst-admissions-phd"
+ },
+ {
+  "id": "q10",
+  "user": "fac_csa",
+  "question": "When do shortlisted faculty candidates meet the committee?",
+  "expect_doc": "csa-faculty-search-shortlist"
+ },
+ {
+  "id": "q11",
+  "user": "stu_csa",
+  "question": "When do shortlisted faculty candidates meet the committee?",
+  "expect_doc": null
+ }
+]

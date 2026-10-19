@@ -1,4 +1,0 @@
-Synthetic test document: ECE laboratory safety.
-Students in the ECE high-voltage laboratory must complete the safety induction before their first session.
-No experiment above 1,000 volts may be run without a supervisor present in the room.
-Safety shoes and insulated gloves are mandatory in the high-voltage bay.

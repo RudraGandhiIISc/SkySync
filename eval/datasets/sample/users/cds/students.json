@@ -1,0 +1,16 @@
+[
+ {
+  "user_id": "stu_cds",
+  "groups": [
+   "students",
+   "mtech"
+  ]
+ },
+ {
+  "user_id": "stu_cds_phd",
+  "groups": [
+   "students",
+   "phd"
+  ]
+ }
+]

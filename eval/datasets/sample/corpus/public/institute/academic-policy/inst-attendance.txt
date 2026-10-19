@@ -1,4 +1,3 @@
-Synthetic test document: Attendance and examinations (version 1).
+Mock document for tests. Not an IISc document.
 Every student must attend at least 75 percent of the lectures in each course to be allowed to write the end-semester examination.
 A student whose attendance is below 75 percent receives an FR grade and must repeat the course.
-Medical leave certified by the health centre counts towards attendance for up to two weeks per semester.

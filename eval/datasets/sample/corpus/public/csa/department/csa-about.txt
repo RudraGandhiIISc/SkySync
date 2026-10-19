@@ -1,0 +1,2 @@
+Mock document for tests. Not an IISc document.
+The Department of Computer Science and Automation offers MTech, MTech (Research) and PhD programmes in computer science.

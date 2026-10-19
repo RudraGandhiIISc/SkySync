@@ -1,7 +1,0 @@
-[
-  {"user_id": "stu_cds", "department": "cds", "role": "student", "groups": ["students"]},
-  {"user_id": "stu_ece", "department": "ece", "role": "student", "groups": ["students"]},
-  {"user_id": "fac_cds", "department": "cds", "role": "faculty", "groups": ["faculty"]},
-  {"user_id": "staff_acc", "department": "accounts", "role": "staff", "groups": ["staff"]},
-  {"user_id": "admin", "department": "admin_office", "role": "admin", "groups": ["staff"]}
-]

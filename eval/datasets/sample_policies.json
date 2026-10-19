@@ -1,8 +1,0 @@
-[
-  {"doc_id": "inst-attendance", "groups": ["students", "faculty", "staff"]},
-  {"doc_id": "inst-hostel-fees", "groups": ["students", "staff"]},
-  {"doc_id": "cds-thesis", "departments": ["cds"]},
-  {"doc_id": "ece-lab-safety", "departments": ["ece"]},
-  {"doc_id": "staff-travel", "groups": ["staff"]},
-  {"doc_id": "fac-promotion", "roles": ["faculty"]}
-]

@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 import httpx
-from deploy.stack import load_world
+from deploy.stack import ingest_corpus, load_world
 
 from askiisc.access.client import HttpAccessClient
 from askiisc.access.service import create_app as create_access
@@ -19,7 +19,6 @@ from askiisc.autoscaler.policy import ScalingConfig
 from askiisc.autoscaler.pool import FakeWorkerPool
 from askiisc.common.clock import SystemClock
 from askiisc.common.tokens import TokenIssuer
-from askiisc.common.types import DocId
 from askiisc.gateway.app import GatewayDeps
 from askiisc.gateway.app import create_app as create_gateway
 from askiisc.gateway.audit import FileAuditSink
@@ -29,7 +28,6 @@ from askiisc.gateway.drr import FairDispatcher
 from askiisc.gateway.limits import Admission
 from askiisc.ingest.objects import FileObjectStore
 from askiisc.ingest.pipeline import Ingestor
-from askiisc.ingest.reconciler import SourceDocument
 from askiisc.ingest.versions import InMemoryVersionStore
 from askiisc.llm.client import LLMClient
 from askiisc.llm.fake_server import FakeLLMConfig
@@ -39,8 +37,6 @@ from askiisc.retrieval.embedder import FakeEmbedder
 from askiisc.retrieval.search import Retriever
 from askiisc.retrieval.store import MilvusIndex
 from tests.integration.conftest import ThreadServer
-
-CORPUS = Path("eval/datasets/sample_corpus")
 
 
 def _events(text: str) -> list[tuple[str, dict[str, object]]]:
@@ -56,7 +52,7 @@ async def test_full_stack_over_http(tmp_path: Path) -> None:
     from pymilvus import MilvusClient
 
     clock, issuer = SystemClock(), TokenIssuer()
-    directory, policies = load_world()
+    directory, policies, docs = load_world()  # mock users and corpus
     llm_server = ThreadServer(
         create_llm(FakeLLMConfig(model="fake", tokens_per_second=500.0), clock)
     ).start()
@@ -76,13 +72,7 @@ async def test_full_stack_over_http(tmp_path: Path) -> None:
         index,
         commit_delay_s=0.0,
     )
-    for path in sorted(CORPUS.glob("*.txt")):
-        await ingestor.ingest(
-            SourceDocument(DocId(path.stem), "text/plain"),
-            path.read_bytes(),
-            "seed",
-            0.0,
-        )
+    assert await ingest_corpus(docs, ingestor) == len(docs)
     pool = FakeWorkerPool(
         clock, acquire_s=0.2, load_s=0.5, base_url=llm_server.url
     )

@@ -1,0 +1,9 @@
+[
+ {
+  "user_id": "fac_csa",
+  "groups": [
+   "faculty",
+   "csa-faculty-search"
+  ]
+ }
+]

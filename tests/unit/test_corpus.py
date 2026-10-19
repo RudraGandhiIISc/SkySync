@@ -87,3 +87,28 @@ def test_restricted_needs_exactly_one_file_and_unique_ids(
     (other / "cds-index-1.policy.json").write_text('{"roles": ["staff"]}')
     with pytest.raises(ConfigError, match="duplicate"):
         load_corpus(tmp_path)
+
+
+def test_mock_sample_matches_the_real_layout() -> None:
+    """eval/datasets/sample mirrors /data4: users tree plus corpus."""
+    from askiisc.access.directory import Directory
+    from askiisc.access.policy import PolicyEngine, PolicyStore
+
+    sample = Path("eval/datasets/sample")
+    directory = Directory()
+    assert directory.load(sample / "users") >= 9
+    docs = load_corpus(sample / "corpus")
+    visibility = [d.policy.visibility for d in docs]
+    assert visibility.count("public") == 7
+    assert visibility.count("restricted") == 6
+    engine = PolicyEngine(directory, PolicyStore([d.policy for d in docs]))
+    questions = json.loads((sample / "questions.json").read_text())
+    for q in questions:
+        if q["expect_doc"]:
+            decision = engine.authorize(q["user"], q["expect_doc"], 0.0)
+            assert decision.allowed, q["id"]
+    assert not engine.authorize("stu_ece", DocId("cds-thesis"), 0.0).allowed
+    assert engine.authorize(
+        "fac_csa", DocId("csa-faculty-search-shortlist"), 0.0
+    ).allowed
+    assert not engine.authorize("fac_csa2", DocId("cds-thesis"), 0.0).allowed

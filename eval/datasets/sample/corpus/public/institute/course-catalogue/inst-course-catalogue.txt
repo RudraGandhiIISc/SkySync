@@ -1,0 +1,2 @@
+Mock document for tests. Not an IISc document.
+Every course carries credits in the form lecture:tutorial. A 3:1 course has three lecture hours and one tutorial hour per week. Students choose electives from the institute course catalogue each semester.
