@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="176" viewBox="0 0 760 176" font-family="system-ui, sans-serif" font-size="12">
+<rect width="760" height="176" fill="#ffffff"/>
+<text x="14" y="20" font-size="14" font-weight="600" fill="#1f2328">Time to a 429 (ms)</text>
+<line x1="260.0" x2="260.0" y1="34" y2="148" stroke="#e5e7eb"/>
+<text x="260.0" y="164" text-anchor="middle" fill="#59636e">0</text>
+<line x1="413.3" x2="413.3" y1="34" y2="148" stroke="#e5e7eb"/>
+<text x="413.3" y="164" text-anchor="middle" fill="#59636e">1,000</text>
+<line x1="566.7" x2="566.7" y1="34" y2="148" stroke="#e5e7eb"/>
+<text x="566.7" y="164" text-anchor="middle" fill="#59636e">2,000</text>
+<line x1="720.0" x2="720.0" y1="34" y2="148" stroke="#e5e7eb"/>
+<text x="720.0" y="164" text-anchor="middle" fill="#59636e">3,000</text>
+<text x="250" y="57" text-anchor="end" fill="#1f2328">gateway decision p95</text>
+<rect x="260" y="44" width="1.0" height="18" rx="4" fill="#2a78d6"/>
+<text x="266.1" y="57" fill="#1f2328">0.448</text>
+<text x="250" y="91" text-anchor="end" fill="#1f2328">separate client p95</text>
+<rect x="260" y="78" width="390.1" height="18" rx="4" fill="#2a78d6"/>
+<text x="656.1" y="91" fill="#1f2328">2,544</text>
+<text x="250" y="125" text-anchor="end" fill="#1f2328">Locust p95</text>
+<rect x="260" y="112" width="414.0" height="18" rx="4" fill="#2a78d6"/>
+<text x="680.0" y="125" fill="#1f2328">2,700</text>
+<line x1="267.7" x2="267.7" y1="34" y2="148" stroke="#d03b3b" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="271.7" y="30" fill="#d03b3b">50 ms</text>
+<text x="14" y="164" fill="#59636e">milliseconds</text>
+</svg>

@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="310" viewBox="0 0 760 310" font-family="system-ui, sans-serif" font-size="12">
+<rect width="760" height="310" fill="#ffffff"/>
+<text x="14" y="20" font-size="14" font-weight="600" fill="#1f2328">Access service decision time p95 during the steady run</text>
+<line x1="64" x2="610" y1="270.0" y2="270.0" stroke="#e5e7eb"/>
+<text x="56" y="274.0" text-anchor="end" fill="#59636e">0</text>
+<line x1="64" x2="610" y1="226.4" y2="226.4" stroke="#e5e7eb"/>
+<text x="56" y="230.4" text-anchor="end" fill="#59636e">0.005</text>
+<line x1="64" x2="610" y1="182.8" y2="182.8" stroke="#e5e7eb"/>
+<text x="56" y="186.8" text-anchor="end" fill="#59636e">0.01</text>
+<line x1="64" x2="610" y1="139.2" y2="139.2" stroke="#e5e7eb"/>
+<text x="56" y="143.2" text-anchor="end" fill="#59636e">0.015</text>
+<line x1="64" x2="610" y1="95.6" y2="95.6" stroke="#e5e7eb"/>
+<text x="56" y="99.6" text-anchor="end" fill="#59636e">0.02</text>
+<line x1="64" x2="610" y1="52.0" y2="52.0" stroke="#e5e7eb"/>
+<text x="56" y="56.0" text-anchor="end" fill="#59636e">0.025</text>
+<text x="64.0" y="288" text-anchor="middle" fill="#59636e">0</text>
+<text x="173.2" y="288" text-anchor="middle" fill="#59636e">2.5</text>
+<text x="282.4" y="288" text-anchor="middle" fill="#59636e">5</text>
+<text x="391.6" y="288" text-anchor="middle" fill="#59636e">7.5</text>
+<text x="500.8" y="288" text-anchor="middle" fill="#59636e">10</text>
+<text x="610.0" y="288" text-anchor="middle" fill="#59636e">12.5</text>
+<text x="337.0" y="304" text-anchor="middle" fill="#59636e">minutes from the start of the run</text>
+<text x="14" y="38" fill="#59636e">seconds</text>
+<line x1="64" x2="610" y1="182.8" y2="182.8" stroke="#d03b3b" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="616" y="186.8" fill="#d03b3b">10 ms</text>
+<line x1="64" x2="610" y1="95.6" y2="95.6" stroke="#d03b3b" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="616" y="99.6" fill="#d03b3b">20 ms</text>
+<polyline points="64.0,265.9 74.9,265.9 85.8,265.9 96.8,265.9 107.7,265.9 118.6,265.9 129.5,265.9 140.4,265.9 151.4,265.9 162.3,265.9 173.2,265.9 184.1,265.9 195.0,265.9 206.0,265.9 216.9,265.9 227.8,265.9 238.7,265.9 249.6,265.9 260.6,265.9 271.5,265.9 282.4,265.9 293.3,265.9 304.2,265.9 315.2,265.9 326.1,265.9 337.0,265.9 347.9,265.9 358.8,265.9 369.8,265.9 380.7,265.9 391.6,265.9 402.5,265.9 413.4,265.9 424.4,265.9 435.3,265.9 446.2,265.9 457.1,265.9 468.0,265.9 479.0,265.9 489.9,265.9 500.8,265.9 511.7,265.9 522.6,265.9 533.6,265.9 544.5,265.9" fill="none" stroke="#2a78d6" stroke-width="2"/>
+<line x1="616" x2="634" y1="62" y2="62" stroke="#2a78d6" stroke-width="2"/>
+<text x="640" y="66" fill="#1f2328">authorize</text>
+<polyline points="64.0,265.9 74.9,265.9 85.8,265.9 96.8,265.9 107.7,265.9 118.6,265.9 129.5,265.9 140.4,265.9 151.4,265.9 162.3,265.9 173.2,265.9 184.1,265.9 195.0,265.9 206.0,265.9 216.9,265.9 227.8,265.9 238.7,265.9 249.6,265.9 260.6,265.9 271.5,265.9 282.4,265.9 293.3,265.9 304.2,265.9 315.2,265.9 326.1,265.9 337.0,265.9 347.9,265.9 358.8,265.9 369.8,265.9 380.7,265.9 391.6,265.9 402.5,265.9 413.4,265.9 424.4,265.9 435.3,265.9 446.2,265.9 457.1,265.9 468.0,265.9 479.0,265.9 489.9,265.9 500.8,265.9 511.7,265.9 522.6,265.9 533.6,265.9 544.5,265.9" fill="none" stroke="#eb6834" stroke-width="2"/>
+<line x1="616" x2="634" y1="80" y2="80" stroke="#eb6834" stroke-width="2"/>
+<text x="640" y="84" fill="#1f2328">filter</text>
+</svg>

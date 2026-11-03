@@ -1,8 +1,8 @@
 # CLAUDE.md: Ask IISc
 
-Multi-tenant retrieval-augmented question answering over versioned IISc documents, on a shared departmental GPU cluster of **at most 2 GPU nodes**. Team SkySync, DS252 Cloud Computing. The full requirements are in `docs/PRD.md`; the build procedure is in `README.md`. Read the PRD row for any FR or NFR before changing code that serves it.
+Multi-tenant retrieval-augmented question answering over versioned IISc documents, on a shared departmental GPU cluster of **at most 2 GPU nodes**. Team SkySync, DS252 Cloud Computing. The full requirements are in `docs/PRD.md`; how it works is in `docs/ARCHITECTURE.md` and the current state in `docs/STATUS.md`. Read the PRD row for any FR or NFR before changing code that serves it.
 
-Everything is developed, tested and run on the CSA `automation` server (Slurm, one node with 3x H200 NVL, no Docker, no Kubernetes, no sudo). How each PRD component runs there is in `docs/SERVER.md`; read it before touching `deploy/`, `slurm/`, `autoscaler/pool.py` or anything that starts a process. A PRD "GPU node" is a **GPU worker** here: one `vllm serve` process pinned to one H200.
+Everything is developed, tested and run on the CSA `automation` server (Slurm, one node with 3x H200 NVL, no Docker, no Kubernetes, no sudo). How each PRD component runs there is in `docs/OPERATIONS.md`; read it before touching `deploy/`, `slurm/`, `autoscaler/pool.py` or anything that starts a process. A PRD "GPU node" is a **GPU worker** here: one `vllm serve` process pinned to one H200.
 
 ## Commands
 
@@ -23,27 +23,34 @@ Nothing but editing, `git`, `sbatch`, `squeue` and `scancel` runs on the login n
 | Everything | `sbatch --wait slurm/gate.sh all` |
 | Model weights | `sbatch slurm/fetch_models.sh <hf repo id>` |
 | vLLM on one GPU | `sbatch slurm/vllm_smoke.sh` |
-| Whole stack, real model | `sbatch slurm/run_stack.sh` (results in `/data4/muthangiv/askiisc/results/stack/<job>/`) |
+| Serve (chat, admin, monitoring) | `sbatch slurm/serve.sh` (run folder `/data4/muthangiv/askiisc/results/serve/<job>/`) |
+| Corpus and index | `slurm/crawl.sh`, `archive.sh`, `catalog.sh`, `ingest.sh` (docs/OPERATIONS.md section 4) |
 | Service binaries | `sbatch slurm/fetch_services.sh` (Redis, gitleaks) |
 
-`dev` jobs wait while any user's GPU-partition job runs; when that happens and a GPU is free, submit short CPU jobs with `--partition=low_2h_1gpu` (approved by the account owner). Output lands in `logs/<job>_<id>.out`. Run the `all` gate before reporting any task as done, and report the real output from that log. Never say tests pass without running them. `dev` jobs wait while any GPU-partition job runs (see `docs/SERVER.md`); if a gate is pending, say so instead of running it outside Slurm.
+`dev` jobs wait while any user's GPU-partition job runs; when that happens and a GPU is free, submit short CPU jobs with `--partition=low_2h_1gpu` (approved by the account owner). Output lands in `logs/<job>_<id>.out`. Run the `all` gate before reporting any task as done, and report the real output from that log. Never say tests pass without running them. `dev` jobs wait while any GPU-partition job runs (see `docs/OPERATIONS.md`); if a gate is pending, say so instead of running it outside Slurm.
 
 ## Layout
 
 ```
 src/askiisc/
   common/         config, types, errors, clock, logging, targets (NFR constants)
-  ingest/         extract, chunk, versions, reconciler, pipeline
+  ingest/         crawl, archive, boilerplate, catalog, editions, extract, chunk,
+                  corpus, versions, reconciler, pipeline
   access/         policy, directory, service (FastAPI), client
-  retrieval/      embedder, store (Milvus HNSW), search, embed_server (CPU, serve venv)
+  retrieval/      embedder, embed_server, rerank, store (Milvus), dense (exact in-memory
+                  search), keyword (BM25), temporal (time scope), search
   llm/            client (OpenAI-compatible), prompts, rag, fake_server
   gateway/        app, auth, limits, drr, cache, audit, output_filter
   autoscaler/     policy, controller, pool (ProcessPool, FakeWorkerPool, SlurmPool)
   observability/  metrics, tracing, cost, gpu (NVML sampler, stands in for DCGM)
-eval/             datasets, locust, grader, oracle, probes, garak, analysis
-deploy/           stack.py (in-job supervisor for the whole stack)
-slurm/            lib.sh, gate.sh, setup_env.sh, fetch_models.sh, fetch_services.sh,
-                  vllm_smoke.sh, run_stack.sh
+  web/            chat app and admin dashboard: accounts, chats, request log, static pages
+eval/             datasets, locust, versioned, heldout, grader, oracle, probes
+deploy/           serve.py (serving job), ingest.py (batch ingest), stack.py (shared
+                  helpers), logs.py, grafana/ (dashboards, alerts)
+slurm/            lib.sh (live corpus and index), gate.sh, run.sh, setup_env.sh,
+                  fetch_models.sh, fetch_services.sh, crawl.sh, archive.sh, catalog.sh,
+                  ingest.sh, serve.sh, loadtest.sh, llm_job.sh, vllm_smoke.sh, ui_preview.sh
+docs/             all documentation (README.md links each file)
 tests/            unit, integration, e2e, perf, security, regression, conformance
 ```
 
@@ -60,7 +67,7 @@ tests/            unit, integration, e2e, perf, security, regression, conformanc
 
 1. **Access control fails closed.** Any error, timeout or unreachable access service means deny. There is no fallback that allows.
 2. **Filter inside the search.** Permission and version filters go in the Milvus search expression. Never post-filter results.
-3. **User identity comes only from the verified SSO token.** Departments and roles come from the directory export, never from the client.
+3. **User identity comes only from the verified session** (password sign-in, or the gateway's signed token). Departments and roles come from the directory, never from the client.
 4. **Never log or store raw query text, answer text or secrets.** Queries and users are stored only as salted SHA-256 hashes.
 5. **Retrieved chunks are untrusted data.** The system prompt must say so, and the prompt prefix stays identical across requests so vLLM prefix caching works. Per-tenant separation uses the cache salt parameter, not prompt text.
 6. **Superseded document versions are never deleted.** They are retired by setting `valid_to`, and any answer that cites one carries a stale flag.
@@ -96,7 +103,7 @@ tests/            unit, integration, e2e, perf, security, regression, conformanc
 - One logical change per commit and one phase per pull request. Tag finished phases (`phase-4-done`); tag the single-model baseline `baseline-v1`.
 - Pre-commit hooks (ruff, mypy, gitleaks) must pass. Never use `--no-verify`.
 
-## Server rules (from `docs/SERVER.md`)
+## Server rules (from `docs/OPERATIONS.md`)
 
 - Pin GPUs yourself: Slurm reserves none (`--gres` is rejected). Use `pick_gpu` in `slurm/lib.sh` or the same logic in `ProcessPool`, and size `--gpu-memory-utilization` from the card's free memory.
 - Always set `--time` and `--mem`. CPU-only work goes to `dev`, GPU work to a GPU partition; CPU services a GPU run needs start inside that GPU job.
@@ -111,4 +118,4 @@ tests/            unit, integration, e2e, perf, security, regression, conformanc
 2. Tests first, then code, then `make all`, then commit.
 3. If a requirement is unclear or two documents disagree (for example GPU memory, or the node limit), ask. Do not invent behaviour.
 4. Stay in scope: one phase at a time, no refactors of unrelated code.
-5. The first LLM variant is `Qwen3-4B-Instruct-2507` (BF16, vLLM). The active model is chosen only by the `ASKIISC_MODEL` environment variable; switching models must never need a code change (FR-8).
+5. The serving job defaults to `qwen3-8b` (`slurm/serve.sh`; the only model that meets NFR-7); the baseline variant was `Qwen3-4B-Instruct-2507`. The active model is chosen only by the `ASKIISC_MODEL` environment variable; switching models must never need a code change (FR-8).

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="310" viewBox="0 0 760 310" font-family="system-ui, sans-serif" font-size="12">
+<rect width="760" height="310" fill="#ffffff"/>
+<text x="14" y="20" font-size="14" font-weight="600" fill="#1f2328">Output tokens per second by department</text>
+<line x1="64" x2="610" y1="270.0" y2="270.0" stroke="#e5e7eb"/>
+<text x="56" y="274.0" text-anchor="end" fill="#59636e">0</text>
+<line x1="64" x2="610" y1="226.4" y2="226.4" stroke="#e5e7eb"/>
+<text x="56" y="230.4" text-anchor="end" fill="#59636e">100</text>
+<line x1="64" x2="610" y1="182.8" y2="182.8" stroke="#e5e7eb"/>
+<text x="56" y="186.8" text-anchor="end" fill="#59636e">200</text>
+<line x1="64" x2="610" y1="139.2" y2="139.2" stroke="#e5e7eb"/>
+<text x="56" y="143.2" text-anchor="end" fill="#59636e">300</text>
+<line x1="64" x2="610" y1="95.6" y2="95.6" stroke="#e5e7eb"/>
+<text x="56" y="99.6" text-anchor="end" fill="#59636e">400</text>
+<line x1="64" x2="610" y1="52.0" y2="52.0" stroke="#e5e7eb"/>
+<text x="56" y="56.0" text-anchor="end" fill="#59636e">500</text>
+<text x="64.0" y="288" text-anchor="middle" fill="#59636e">0</text>
+<text x="173.2" y="288" text-anchor="middle" fill="#59636e">2</text>
+<text x="282.4" y="288" text-anchor="middle" fill="#59636e">4</text>
+<text x="391.6" y="288" text-anchor="middle" fill="#59636e">6</text>
+<text x="500.8" y="288" text-anchor="middle" fill="#59636e">8</text>
+<text x="610.0" y="288" text-anchor="middle" fill="#59636e">10</text>
+<text x="337.0" y="304" text-anchor="middle" fill="#59636e">minutes from the start of the run</text>
+<text x="14" y="38" fill="#59636e">tokens/s</text>
+<polyline points="64.0,260.4 77.6,227.8 91.3,185.0 104.9,141.0 118.6,91.1 132.2,103.8 145.9,96.0 159.5,94.2 173.2,103.4 186.8,109.8 200.5,127.9 214.1,138.1 227.8,160.0 241.4,171.4 255.1,176.3 268.7,187.4 282.4,191.0 296.0,191.4 309.7,206.3 323.3,215.1 337.0,226.9 350.6,223.2 364.3,226.8 377.9,233.4 391.6,237.3 405.2,245.8 418.9,251.3 432.5,258.6 446.2,256.0 459.8,257.6 473.5,261.2 487.1,259.8 500.8,259.3 514.4,258.6 528.1,259.0 541.7,261.5 555.4,263.0 569.0,262.6 582.7,264.1 596.3,263.1 610.0,261.1" fill="none" stroke="#2a78d6" stroke-width="2"/>
+<line x1="616" x2="634" y1="62" y2="62" stroke="#2a78d6" stroke-width="2"/>
+<text x="640" y="66" fill="#1f2328">cds</text>
+<polyline points="64.0,265.5 77.6,257.9 91.3,243.2 104.9,233.7 118.6,218.5 132.2,220.9 145.9,221.0 159.5,221.2 173.2,222.1 186.8,226.6 200.5,234.2 214.1,231.2 227.8,232.1 241.4,232.2 255.1,231.6 268.7,233.2 282.4,231.5 296.0,234.4 309.7,237.4 323.3,240.3 337.0,239.0 350.6,240.1 364.3,236.8 377.9,242.2 391.6,243.0 405.2,243.0 418.9,243.8 432.5,245.8 446.2,244.6 459.8,245.0 473.5,247.9 487.1,247.5 500.8,252.2 514.4,250.7 528.1,249.6 541.7,251.4 555.4,253.6 569.0,247.9 582.7,249.0 596.3,248.0 610.0,250.7" fill="none" stroke="#eb6834" stroke-width="2"/>
+<line x1="616" x2="634" y1="80" y2="80" stroke="#eb6834" stroke-width="2"/>
+<text x="640" y="84" fill="#1f2328">csa</text>
+</svg>

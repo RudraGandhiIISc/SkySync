@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="310" viewBox="0 0 760 310" font-family="system-ui, sans-serif" font-size="12">
+<rect width="760" height="310" fill="#ffffff"/>
+<text x="14" y="20" font-size="14" font-weight="600" fill="#1f2328">Forbidden citations seen by Locust during the access run</text>
+<line x1="64" x2="610" y1="270.0" y2="270.0" stroke="#e5e7eb"/>
+<text x="56" y="274.0" text-anchor="end" fill="#59636e">0</text>
+<line x1="64" x2="610" y1="226.4" y2="226.4" stroke="#e5e7eb"/>
+<text x="56" y="230.4" text-anchor="end" fill="#59636e">0.2</text>
+<line x1="64" x2="610" y1="182.8" y2="182.8" stroke="#e5e7eb"/>
+<text x="56" y="186.8" text-anchor="end" fill="#59636e">0.4</text>
+<line x1="64" x2="610" y1="139.2" y2="139.2" stroke="#e5e7eb"/>
+<text x="56" y="143.2" text-anchor="end" fill="#59636e">0.6</text>
+<line x1="64" x2="610" y1="95.6" y2="95.6" stroke="#e5e7eb"/>
+<text x="56" y="99.6" text-anchor="end" fill="#59636e">0.8</text>
+<line x1="64" x2="610" y1="52.0" y2="52.0" stroke="#e5e7eb"/>
+<text x="56" y="56.0" text-anchor="end" fill="#59636e">1</text>
+<text x="64.0" y="288" text-anchor="middle" fill="#59636e">0</text>
+<text x="200.5" y="288" text-anchor="middle" fill="#59636e">5</text>
+<text x="337.0" y="288" text-anchor="middle" fill="#59636e">10</text>
+<text x="473.5" y="288" text-anchor="middle" fill="#59636e">15</text>
+<text x="610.0" y="288" text-anchor="middle" fill="#59636e">20</text>
+<text x="337.0" y="304" text-anchor="middle" fill="#59636e">minutes from the start of the run</text>
+<text x="14" y="38" fill="#59636e">count</text>
+<line x1="64" x2="610" y1="270.0" y2="270.0" stroke="#d03b3b" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="616" y="274.0" fill="#d03b3b">target 0</text>
+<polyline points="64.0,270.0 70.8,270.0 77.7,270.0 84.5,270.0 91.3,270.0 98.1,270.0 105.0,270.0 111.8,270.0 118.6,270.0 125.4,270.0 132.3,270.0 139.1,270.0 145.9,270.0 152.7,270.0 159.6,270.0 166.4,270.0 173.2,270.0 180.0,270.0 186.9,270.0 193.7,270.0 200.5,270.0 207.3,270.0 214.2,270.0 221.0,270.0 227.8,270.0 234.6,270.0 241.5,270.0 248.3,270.0 255.1,270.0 261.9,270.0 268.8,270.0 275.6,270.0 282.4,270.0 289.2,270.0 296.1,270.0 302.9,270.0 309.7,270.0 316.5,270.0 323.4,270.0 330.2,270.0 337.0,270.0 343.8,270.0 350.7,270.0 357.5,270.0 364.3,270.0 371.1,270.0 378.0,270.0 384.8,270.0 391.6,270.0 398.4,270.0 405.3,270.0 412.1,270.0 418.9,270.0 425.7,270.0 432.6,270.0 439.4,270.0 446.2,270.0 453.0,270.0 459.9,270.0 466.7,270.0 473.5,270.0" fill="none" stroke="#2a78d6" stroke-width="2"/>
+<line x1="616" x2="634" y1="62" y2="62" stroke="#2a78d6" stroke-width="2"/>
+<text x="640" y="66" fill="#1f2328">forbidden citations</text>
+</svg>

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="244" viewBox="0 0 760 244" font-family="system-ui, sans-serif" font-size="12">
+<rect width="760" height="244" fill="#ffffff"/>
+<text x="14" y="20" font-size="14" font-weight="600" fill="#1f2328">Red-team successes by category (lower is better)</text>
+<line x1="260.0" x2="260.0" y1="34" y2="216" stroke="#e5e7eb"/>
+<text x="260.0" y="232" text-anchor="middle" fill="#59636e">0</text>
+<line x1="375.0" x2="375.0" y1="34" y2="216" stroke="#e5e7eb"/>
+<text x="375.0" y="232" text-anchor="middle" fill="#59636e">1</text>
+<line x1="490.0" x2="490.0" y1="34" y2="216" stroke="#e5e7eb"/>
+<text x="490.0" y="232" text-anchor="middle" fill="#59636e">2</text>
+<line x1="605.0" x2="605.0" y1="34" y2="216" stroke="#e5e7eb"/>
+<text x="605.0" y="232" text-anchor="middle" fill="#59636e">3</text>
+<line x1="720.0" x2="720.0" y1="34" y2="216" stroke="#e5e7eb"/>
+<text x="720.0" y="232" text-anchor="middle" fill="#59636e">4</text>
+<text x="250" y="57" text-anchor="end" fill="#1f2328">override (20)</text>
+<rect x="260" y="44" width="115.0" height="18" rx="4" fill="#2a78d6"/>
+<text x="381.0" y="57" fill="#1f2328">1</text>
+<text x="250" y="91" text-anchor="end" fill="#1f2328">extraction (20)</text>
+<rect x="260" y="78" width="1.0" height="18" rx="4" fill="#2a78d6"/>
+<text x="266.0" y="91" fill="#1f2328">0</text>
+<text x="250" y="125" text-anchor="end" fill="#1f2328">planted documents (20)</text>
+<rect x="260" y="112" width="1.0" height="18" rx="4" fill="#2a78d6"/>
+<text x="266.0" y="125" fill="#1f2328">0</text>
+<text x="250" y="159" text-anchor="end" fill="#1f2328">exfiltration (10)</text>
+<rect x="260" y="146" width="1.0" height="18" rx="4" fill="#2a78d6"/>
+<text x="266.0" y="159" fill="#1f2328">0</text>
+<text x="250" y="193" text-anchor="end" fill="#1f2328">cross-user leaks (20)</text>
+<rect x="260" y="180" width="1.0" height="18" rx="4" fill="#2a78d6"/>
+<text x="266.0" y="193" fill="#1f2328">0</text>
+<line x1="662.5" x2="662.5" y1="34" y2="216" stroke="#d03b3b" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="666.5" y="30" fill="#d03b3b">5% of 70</text>
+<text x="14" y="232" fill="#59636e">cases</text>
+</svg>

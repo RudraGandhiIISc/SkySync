@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="380" viewBox="0 0 760 380" font-family="system-ui, sans-serif" font-size="12">
+<rect width="760" height="380" fill="#ffffff"/>
+<text x="14" y="20" font-size="14" font-weight="600" fill="#1f2328">Output tokens/s by concurrency (one worker)</text>
+<line x1="260.0" x2="260.0" y1="34" y2="352" stroke="#e5e7eb"/>
+<text x="260.0" y="368" text-anchor="middle" fill="#59636e">0</text>
+<line x1="375.0" x2="375.0" y1="34" y2="352" stroke="#e5e7eb"/>
+<text x="375.0" y="368" text-anchor="middle" fill="#59636e">1,000</text>
+<line x1="490.0" x2="490.0" y1="34" y2="352" stroke="#e5e7eb"/>
+<text x="490.0" y="368" text-anchor="middle" fill="#59636e">2,000</text>
+<line x1="605.0" x2="605.0" y1="34" y2="352" stroke="#e5e7eb"/>
+<text x="605.0" y="368" text-anchor="middle" fill="#59636e">3,000</text>
+<line x1="720.0" x2="720.0" y1="34" y2="352" stroke="#e5e7eb"/>
+<text x="720.0" y="368" text-anchor="middle" fill="#59636e">4,000</text>
+<text x="250" y="57" text-anchor="end" fill="#1f2328">concurrency 1</text>
+<rect x="260" y="44" width="23.9" height="18" rx="4" fill="#2a78d6"/>
+<text x="289.9" y="57" fill="#1f2328">208</text>
+<text x="250" y="91" text-anchor="end" fill="#1f2328">concurrency 2</text>
+<rect x="260" y="78" width="45.3" height="18" rx="4" fill="#2a78d6"/>
+<text x="311.3" y="91" fill="#1f2328">394</text>
+<text x="250" y="125" text-anchor="end" fill="#1f2328">concurrency 4</text>
+<rect x="260" y="112" width="78.1" height="18" rx="4" fill="#2a78d6"/>
+<text x="344.1" y="125" fill="#1f2328">679</text>
+<text x="250" y="159" text-anchor="end" fill="#1f2328">concurrency 8</text>
+<rect x="260" y="146" width="131.6" height="18" rx="4" fill="#2a78d6"/>
+<text x="397.6" y="159" fill="#1f2328">1,144</text>
+<text x="250" y="193" text-anchor="end" fill="#1f2328">concurrency 16</text>
+<rect x="260" y="180" width="199.6" height="18" rx="4" fill="#2a78d6"/>
+<text x="465.6" y="193" fill="#1f2328">1,736</text>
+<text x="250" y="227" text-anchor="end" fill="#1f2328">concurrency 32</text>
+<rect x="260" y="214" width="257.4" height="18" rx="4" fill="#2a78d6"/>
+<text x="523.4" y="227" fill="#1f2328">2,238</text>
+<text x="250" y="261" text-anchor="end" fill="#1f2328">concurrency 64</text>
+<rect x="260" y="248" width="305.9" height="18" rx="4" fill="#2a78d6"/>
+<text x="571.9" y="261" fill="#1f2328">2,660</text>
+<text x="250" y="295" text-anchor="end" fill="#1f2328">concurrency 128</text>
+<rect x="260" y="282" width="327.9" height="18" rx="4" fill="#2a78d6"/>
+<text x="593.9" y="295" fill="#1f2328">2,851</text>
+<text x="250" y="329" text-anchor="end" fill="#1f2328">concurrency 256</text>
+<rect x="260" y="316" width="340.1" height="18" rx="4" fill="#2a78d6"/>
+<text x="606.1" y="329" fill="#1f2328">2,958</text>
+<line x1="329.0" x2="329.0" y1="34" y2="352" stroke="#d03b3b" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="333.0" y="30" fill="#d03b3b">600</text>
+<text x="14" y="368" fill="#59636e">tokens/s</text>
+</svg>

@@ -7,7 +7,7 @@
 | **Summary** | Ask IISc answers questions over versioned institute documents on a departmental GPU cluster, enforcing per-user access through a standalone access-control service, and compares nine open 4B, 8B and 4-bit 8B models on accuracy, latency, cost and scalability. |
 | **Course** | DS252 Cloud Computing |
 
-> Status: Sections 1–6 are taken from the revised PRD (*Ask IISc.pdf*). Sections 7–9 are adapted from PRD v1.0 to the revised design (2 GPU nodes, nine models, the FR/NFR numbering below) and still need team review. Assumptions A1–A2, Section 6 and risks R-1, R-3 and R-4 were updated on 2026-10-18 for the CSA automation server, where the whole project runs (details in `docs/SERVER.md`).
+> Status: Sections 1–6 are taken from the revised PRD (*Ask IISc.pdf*). Sections 7–9 are adapted from PRD v1.0 to the revised design (2 GPU nodes, nine models, the FR/NFR numbering below) and still need team review. Assumptions A1–A2, Section 6 and risks R-1, R-3 and R-4 were updated on 2026-10-18 for the CSA automation server, where the whole project runs (details in `docs/OPERATIONS.md`).
 
 ## 1. Problem statement and motivation
 
@@ -120,7 +120,7 @@ Finally, this is a course project and not a live service. There is **no round-th
 | Testing | Locust, rubric grader and LLM judge, access oracle, Garak | Locust simulates many users to test speed and scale. The grader and judge score answer accuracy and citations. The oracle checks permissions, and Garak runs attack tests. |
 | Monitoring | Prometheus, Grafana, OpenTelemetry | Shows speed, queue length and GPU use, which feed the cost measurements. |
 
-**Deployment on the CSA automation server.** The server runs Slurm with no Docker, Kubernetes or root access, so the components above run as ordinary processes. Each experiment is one Slurm job: a supervisor starts every service on `127.0.0.1`, the autoscaler starts and stops at most 2 vLLM workers (each pinned to one H200), the workload runs, and everything stops with the job. Three components are swapped for user-space equivalents with the same role: BGE-base is served on CPU with sentence-transformers instead of TEI; GPU metrics come from NVML at 1 Hz instead of DCGM; Milvus 2.4 runs as Milvus Lite for now, with a standalone binary unpacked without root planned (Qdrant is the fallback); and because MinIO no longer publishes community binaries, document originals are stored as files on the server's NFS storage behind the same object-store interface. Model weights and raw results live on the server's NFS storage. The full mapping is in `docs/SERVER.md`.
+**Deployment on the CSA automation server.** The server runs Slurm with no Docker, Kubernetes or root access, so the components above run as ordinary processes. Each experiment is one Slurm job: a supervisor starts every service on `127.0.0.1`, the autoscaler starts and stops at most 2 vLLM workers (each pinned to one H200), the workload runs, and everything stops with the job. Three components are swapped for user-space equivalents with the same role: BGE-base is served on CPU with sentence-transformers instead of TEI; GPU metrics come from NVML at 1 Hz instead of DCGM; Milvus 2.4 runs as Milvus Lite for now, with a standalone binary unpacked without root planned (Qdrant is the fallback); and because MinIO no longer publishes community binaries, document originals are stored as files on the server's NFS storage behind the same object-store interface. Model weights and raw results live on the server's NFS storage. The full mapping is in `docs/OPERATIONS.md`.
 
 ### Design decisions
 
@@ -195,7 +195,7 @@ Owners: RKG = Rudra Kumar Gandhi, MV = Muthangi Vighnesh, MH = Mohammad Haris. B
 
 | Week | Tasks (owner) |
 |---|---|
-| 1 | Repository, toolchain and CI; shared types and fake LLM server — Phases 0–1 (All). Server spikes (`docs/SERVER.md` section 5): vLLM smoke test on one H200, service binaries without root (Milvus standalone, MinIO, Redis), questions to the admin (RKG). Corpus collection, extraction, chunking, version lineage and reconciler — Phase 2, FR-5 (MV). Held-out question set design and grading rubric (MH). |
+| 1 | Repository, toolchain and CI; shared types and fake LLM server — Phases 0–1 (All). Server spikes (`docs/OPERATIONS.md`): vLLM smoke test on one H200, service binaries without root (Milvus standalone, MinIO, Redis), questions to the admin (RKG). Corpus collection, extraction, chunking, version lineage and reconciler — Phase 2, FR-5 (MV). Held-out question set design and grading rubric (MH). |
 | 2 | Access policy engine, service, client and oracle — Phase 3, FR-3, FR-4 (RKG). Milvus schema with version and ACL fields, filtered search — Phase 4, FR-2 (MV). RAG prompt, citations, model config, held-out set v1 — Phase 5, FR-1, FR-8 (MH). |
 | 3 | Gateway auth, load limits, fair queueing — Phase 6, FR-6, FR-11 (RKG). Audit, output filter, cache and API wiring — FR-12 (MV). Autoscaler policy and controller — Phase 7, FR-9, FR-10 (RKG, MH). Metrics, tracing and cost model — Phase 8, NFR-6 (MH). → **M1** |
 | 4 | Locust workloads W1–W4 (MH); rubric grader and LLM judge (MV); access probes and red-team suite (RKG) — Phase 9. Security hardening — Phase 10 (All). Regression goldens and performance thresholds — Phase 11 (All). |

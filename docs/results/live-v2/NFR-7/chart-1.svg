@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="210" viewBox="0 0 760 210" font-family="system-ui, sans-serif" font-size="12">
+<rect width="760" height="210" fill="#ffffff"/>
+<text x="14" y="20" font-size="14" font-weight="600" fill="#1f2328">NFR-7 on 150 answerable questions</text>
+<line x1="260.0" x2="260.0" y1="34" y2="182" stroke="#e5e7eb"/>
+<text x="260.0" y="198" text-anchor="middle" fill="#59636e">0</text>
+<line x1="352.0" x2="352.0" y1="34" y2="182" stroke="#e5e7eb"/>
+<text x="352.0" y="198" text-anchor="middle" fill="#59636e">0.25</text>
+<line x1="444.0" x2="444.0" y1="34" y2="182" stroke="#e5e7eb"/>
+<text x="444.0" y="198" text-anchor="middle" fill="#59636e">0.5</text>
+<line x1="536.0" x2="536.0" y1="34" y2="182" stroke="#e5e7eb"/>
+<text x="536.0" y="198" text-anchor="middle" fill="#59636e">0.75</text>
+<line x1="628.0" x2="628.0" y1="34" y2="182" stroke="#e5e7eb"/>
+<text x="628.0" y="198" text-anchor="middle" fill="#59636e">1</text>
+<line x1="720.0" x2="720.0" y1="34" y2="182" stroke="#e5e7eb"/>
+<text x="720.0" y="198" text-anchor="middle" fill="#59636e">1.25</text>
+<text x="250" y="57" text-anchor="end" fill="#1f2328">accuracy (judge)</text>
+<rect x="260" y="44" width="238.0" height="18" rx="4" fill="#2a78d6"/>
+<text x="504.0" y="57" fill="#1f2328">0.647</text>
+<text x="250" y="91" text-anchor="end" fill="#1f2328">accuracy before the guards</text>
+<rect x="260" y="78" width="272.9" height="18" rx="4" fill="#2a78d6"/>
+<text x="538.9" y="91" fill="#1f2328">0.742</text>
+<text x="250" y="125" text-anchor="end" fill="#1f2328">citations support (judge)</text>
+<rect x="260" y="112" width="358.8" height="18" rx="4" fill="#2a78d6"/>
+<text x="624.8" y="125" fill="#1f2328">0.975</text>
+<text x="250" y="159" text-anchor="end" fill="#1f2328">accuracy (rubric, lenient)</text>
+<rect x="260" y="146" width="179.1" height="18" rx="4" fill="#2a78d6"/>
+<text x="445.1" y="159" fill="#1f2328">0.487</text>
+<line x1="554.4" x2="554.4" y1="34" y2="182" stroke="#d03b3b" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="558.4" y="30" fill="#d03b3b">80%</text>
+<line x1="591.2" x2="591.2" y1="34" y2="182" stroke="#d03b3b" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="595.2" y="30" fill="#d03b3b">90%</text>
+<text x="14" y="198" fill="#59636e">fraction</text>
+</svg>

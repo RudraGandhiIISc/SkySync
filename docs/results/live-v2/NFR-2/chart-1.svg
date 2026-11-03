@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="310" viewBox="0 0 760 310" font-family="system-ui, sans-serif" font-size="12">
+<rect width="760" height="310" fill="#ffffff"/>
+<text x="14" y="20" font-size="14" font-weight="600" fill="#1f2328">Time to first token during the cold-start run</text>
+<line x1="64" x2="610" y1="270.0" y2="270.0" stroke="#e5e7eb"/>
+<text x="56" y="274.0" text-anchor="end" fill="#59636e">0</text>
+<line x1="64" x2="610" y1="226.4" y2="226.4" stroke="#e5e7eb"/>
+<text x="56" y="230.4" text-anchor="end" fill="#59636e">20</text>
+<line x1="64" x2="610" y1="182.8" y2="182.8" stroke="#e5e7eb"/>
+<text x="56" y="186.8" text-anchor="end" fill="#59636e">40</text>
+<line x1="64" x2="610" y1="139.2" y2="139.2" stroke="#e5e7eb"/>
+<text x="56" y="143.2" text-anchor="end" fill="#59636e">60</text>
+<line x1="64" x2="610" y1="95.6" y2="95.6" stroke="#e5e7eb"/>
+<text x="56" y="99.6" text-anchor="end" fill="#59636e">80</text>
+<line x1="64" x2="610" y1="52.0" y2="52.0" stroke="#e5e7eb"/>
+<text x="56" y="56.0" text-anchor="end" fill="#59636e">100</text>
+<text x="64.0" y="288" text-anchor="middle" fill="#59636e">0</text>
+<text x="200.5" y="288" text-anchor="middle" fill="#59636e">10</text>
+<text x="337.0" y="288" text-anchor="middle" fill="#59636e">20</text>
+<text x="473.5" y="288" text-anchor="middle" fill="#59636e">30</text>
+<text x="610.0" y="288" text-anchor="middle" fill="#59636e">40</text>
+<text x="337.0" y="304" text-anchor="middle" fill="#59636e">minutes from the start of the run</text>
+<text x="14" y="38" fill="#59636e">seconds</text>
+<line x1="64" x2="610" y1="73.8" y2="73.8" stroke="#d03b3b" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="616" y="77.8" fill="#d03b3b">90 s</text>
+<polyline points="166.4,206.8 169.8,209.5 173.2,212.7 176.6,216.8 180.0,269.4 183.4,269.4 186.9,269.5 190.3,269.2 193.7,269.2 197.1,269.3 200.5,269.5 203.9,269.5 207.3,269.5 210.7,269.5 302.9,206.9 306.3,209.4 309.7,212.5 313.1,215.1 316.5,269.2 319.9,269.2 323.4,269.5 326.8,269.2 330.2,269.3 333.6,269.2 337.0,269.5 340.4,269.5 343.8,269.5 347.2,269.5 439.4,206.9 442.8,209.9 446.2,213.2 449.6,217.1 453.0,269.5 456.4,269.5 459.9,269.5 463.3,269.5 466.7,269.5 470.1,269.5 473.5,269.5" fill="none" stroke="#2a78d6" stroke-width="2"/>
+<line x1="616" x2="634" y1="62" y2="62" stroke="#2a78d6" stroke-width="2"/>
+<text x="640" y="66" fill="#1f2328">first token p95</text>
+</svg>

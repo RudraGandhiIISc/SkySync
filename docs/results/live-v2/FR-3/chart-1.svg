@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="142" viewBox="0 0 760 142" font-family="system-ui, sans-serif" font-size="12">
+<rect width="760" height="142" fill="#ffffff"/>
+<text x="14" y="20" font-size="14" font-weight="600" fill="#1f2328">Seconds from revocation to the last citation</text>
+<line x1="260.0" x2="260.0" y1="34" y2="114" stroke="#e5e7eb"/>
+<text x="260.0" y="130" text-anchor="middle" fill="#59636e">0</text>
+<line x1="375.0" x2="375.0" y1="34" y2="114" stroke="#e5e7eb"/>
+<text x="375.0" y="130" text-anchor="middle" fill="#59636e">20</text>
+<line x1="490.0" x2="490.0" y1="34" y2="114" stroke="#e5e7eb"/>
+<text x="490.0" y="130" text-anchor="middle" fill="#59636e">40</text>
+<line x1="605.0" x2="605.0" y1="34" y2="114" stroke="#e5e7eb"/>
+<text x="605.0" y="130" text-anchor="middle" fill="#59636e">60</text>
+<line x1="720.0" x2="720.0" y1="34" y2="114" stroke="#e5e7eb"/>
+<text x="720.0" y="130" text-anchor="middle" fill="#59636e">80</text>
+<text x="250" y="57" text-anchor="end" fill="#1f2328">slowest of 7</text>
+<rect x="260" y="44" width="39.4" height="18" rx="4" fill="#2a78d6"/>
+<text x="305.4" y="57" fill="#1f2328">6.85</text>
+<text x="250" y="91" text-anchor="end" fill="#1f2328">mean</text>
+<rect x="260" y="78" width="9.9" height="18" rx="4" fill="#2a78d6"/>
+<text x="275.9" y="91" fill="#1f2328">1.73</text>
+<line x1="605.0" x2="605.0" y1="34" y2="114" stroke="#d03b3b" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="609.0" y="30" fill="#d03b3b">60 s</text>
+<text x="14" y="130" fill="#59636e">seconds</text>
+</svg>
