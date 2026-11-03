@@ -233,3 +233,78 @@ def test_who_may_manage_which_documents() -> None:
     assert may_manage(inst_admin, "csa") and may_manage(inst_admin, "institute")
     assert not may_manage(cds_faculty, "cds")
     assert not may_manage(None, "cds")
+
+
+def test_owners_may_be_added_but_only_removed_by_their_own_admins() -> None:
+    from askiisc.access.policy import (
+        DocPolicy,
+        may_change_owners,
+        may_manage_policy,
+    )
+
+    cds_admin = Person(UserId("a"), "cds", "admin", frozenset())
+    inst_admin = Person(UserId("i"), "institute", "admin", frozenset())
+    joint = DocPolicy(doc_id=DocId("d"), owner="csa", co_owners={"cds"})
+    assert joint.owners == {"csa", "cds"}
+    assert may_manage_policy(cds_admin, joint.owners)  # a co-owner manages
+    assert not may_manage_policy(cds_admin, frozenset({"csa"}))
+    both, csa = frozenset({"csa", "cds"}), frozenset({"csa"})
+    assert may_change_owners(cds_admin, csa | {"cds"}, both | {"ece"})  # add
+    assert not may_change_owners(cds_admin, both, frozenset({"cds"}))  # csa out
+    assert may_change_owners(cds_admin, both, csa)  # gives up its own share
+    assert not may_change_owners(cds_admin, csa, both)  # not an owner yet
+    assert may_change_owners(cds_admin, None, frozenset({"cds", "ece"}))
+    assert not may_change_owners(cds_admin, None, frozenset({"ece"}))
+    assert may_change_owners(inst_admin, both, frozenset({"ece"}))
+    assert not may_change_owners(inst_admin, both, frozenset())
+
+
+def test_filter_split_is_cached_per_version_and_matches_evaluate() -> None:
+    w = world()
+    engine = PolicyEngine(w.directory, w.policies)
+    first = engine.filter(UserId("u_banned"), MATRIX["at"])
+    assert "d21" in first.doc_ids and "d22" not in first.doc_ids  # deny wins
+    split = engine._split
+    assert engine.filter(UserId("u_guest"), MATRIX["at"]).doc_ids >= {"d21"}
+    assert engine._split is split  # same version: no recomputation
+    w.policies.put(DocPolicy(doc_id=DocId("d23"), visibility="public"))
+    assert "d23" in engine.filter(UserId("u_guest"), MATRIX["at"]).doc_ids
+    assert engine._split is not split
+
+
+def test_compact_filter_plus_public_equals_full_filter() -> None:
+    from askiisc.access.policy import PolicyEngine
+
+    w = world()
+    engine = PolicyEngine(w.directory, w.policies)
+    public = engine.public()
+    for person in w.directory.people():
+        full = engine.filter(person.user_id, w.clock.now())
+        compact = engine.filter_compact(person.user_id, w.clock.now())
+        assert compact.public
+        assert public.doc_ids | compact.extra == full.doc_ids
+        assert not public.doc_ids & compact.extra
+        assert compact.policy_version == public.policy_version
+    stranger = engine.filter_compact(UserId("nobody"), w.clock.now())
+    assert not stranger.public and not stranger.extra
+
+
+def test_compact_filter_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    from askiisc.access import policy
+    from askiisc.access.policy import PolicyEngine
+
+    w = world()
+    engine = PolicyEngine(w.directory, w.policies)
+
+    def broken(*args: object) -> tuple[bool, str]:
+        raise RuntimeError("bug")
+
+    monkeypatch.setattr(policy, "evaluate", broken)
+    result = engine.filter_compact(UserId("u_cds_stu"), w.clock.now())
+    assert not result.public and not result.extra
+
+
+def test_directory_people_are_sorted() -> None:
+    w = world()
+    ids = [p.user_id for p in w.directory.people()]
+    assert ids == sorted(ids) and len(ids) > 3

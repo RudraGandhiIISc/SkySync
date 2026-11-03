@@ -10,6 +10,20 @@ It can also be a folder tree, one file per department and role:
 where department and role come from the path, and every user also gets
 the group "<department>-<file stem>" (for example "cds-faculty"), so a
 policy can name an intersection such as "CDS faculty" with one group.
+
+Only students have a programme (`"program": "phd"`, one of PROGRAMS) and
+usually a joining year (`"joined": 2025`). A student then also gets the
+groups "phd", "<department>-phd", "<department>-phd-<year>" and
+"<department>-research-students" (PhD, M.Tech (Research)) or
+"<department>-course-students" (M.Tech). Faculty and staff may have a
+type (`"kind"`, one of KINDS for their role; for example visiting
+faculty, technical staff) and an optional joining year; a type other than
+the plain one adds the group "<department>-<kind>-<file stem>" (for
+example "csa-visiting-faculty", "cds-research-staff").
+
+Admins edit the tree from the dashboard (web/people.py) and the terminal
+(web/cli.py); `DirectoryWatcher` reloads it when its files change, and
+keeps the last good copy if an edit leaves it unreadable.
 """
 
 from __future__ import annotations
@@ -17,13 +31,42 @@ from __future__ import annotations
 import csv
 import io
 import json
+import logging
 import threading
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from askiisc.common.errors import ConfigError
 from askiisc.common.types import UserId
+
+_LOG = logging.getLogger(__name__)
+
+PROGRAMS = {
+    "phd": "PhD",
+    "mtech-research": "M.Tech (Research)",
+    "mtech-cse": "M.Tech CSE",
+    "mtech-cds": "M.Tech (CDS)",
+}
+"""Student programme key (also an access group) to its display name."""
+RESEARCH_PROGRAMS = frozenset({"phd", "mtech-research"})
+"""Degrees by research; the others are course degrees."""
+DEPARTMENT_PROGRAMS = {
+    "csa": ("phd", "mtech-research", "mtech-cse"),
+    "cds": ("phd", "mtech-research", "mtech-cds"),
+}
+"""The programmes each department offers (from its website, 2026-10)."""
+KINDS = {
+    "faculty": {"faculty": "Faculty", "visiting": "Visiting / guest faculty"},
+    "staff": {
+        "administrative": "Administrative",
+        "technical": "Technical",
+        "research": "Research staff (postdoc, project)",
+    },
+}
+"""The types of faculty and staff, by role (the first is the plain one)."""
+FIRST_YEAR = 1950
+LAST_YEAR = 2100
 
 
 @dataclass(frozen=True)
@@ -34,6 +77,9 @@ class Person:
     department: str
     role: str
     groups: frozenset[str]
+    program: str = ""
+    kind: str = ""
+    joined: int | None = None
 
 
 def _person(record: Mapping[str, object]) -> Person:
@@ -45,12 +91,34 @@ def _person(record: Mapping[str, object]) -> Person:
     user_id = str(record["user_id"]).strip()
     if not user_id:
         raise ConfigError("empty user_id in directory export")
+    role = str(record.get("role", "")).strip()
+    program = str(record.get("program", "")).strip()
+    if program and (program not in PROGRAMS or role != "student"):
+        raise ConfigError(f"{user_id}: programme {program!r} is not valid")
+    kind = str(record.get("kind", "")).strip()
+    if kind and kind not in KINDS.get(role, {}):
+        raise ConfigError(f"{user_id}: type {kind!r} is not valid")
     return Person(
         user_id=UserId(user_id),
         department=str(record.get("department", "")).strip(),
-        role=str(record.get("role", "")).strip(),
+        role=role,
         groups=frozenset(str(g).strip() for g in groups),
+        program=program,
+        kind=kind,
+        joined=_year(user_id, record.get("joined")),
     )
+
+
+def _year(user_id: str, value: object) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        year = int(str(value))
+    except ValueError:
+        year = 0
+    if not FIRST_YEAR <= year <= LAST_YEAR:
+        raise ConfigError(f"{user_id}: joining year {value!r} is not valid")
+    return year
 
 
 ROLE_FILES = {
@@ -59,6 +127,7 @@ ROLE_FILES = {
     "staff": "staff",
     "admins": "admin",
 }
+ROLE_STEMS = {role: stem for stem, role in ROLE_FILES.items()}
 
 
 def _tree_person(
@@ -72,8 +141,43 @@ def _tree_person(
                 f"its folder ({value!r})"
             )
     person = _person({**record, "department": department, "role": role})
-    groups = person.groups | {f"{department}-{stem}"}
-    return Person(person.user_id, department, role, groups)
+    groups = person.groups | {f"{department}-{stem}"} | _derived(person)
+    return replace(person, groups=frozenset(groups))
+
+
+def _derived(person: Person) -> set[str]:
+    """The groups a person's programme, type and year add (see above)."""
+    dept, program = person.department, person.program
+    if program:
+        degree = "research" if program in RESEARCH_PROGRAMS else "course"
+        out = {program, f"{dept}-{program}", f"{dept}-{degree}-students"}
+        if person.joined is not None:
+            out.add(f"{dept}-{program}-{person.joined}")
+        return out
+    plain = next(iter(KINDS.get(person.role, {})), "")
+    if person.kind and person.kind != plain:
+        return {f"{dept}-{person.kind}-{ROLE_STEMS[person.role]}"}
+    return set()
+
+
+def read_tree(root: Path) -> dict[tuple[str, str], list[dict[str, object]]]:
+    """The raw records of a users tree, by (department, file stem).
+
+    Raises:
+        ConfigError: On an unknown role file or malformed JSON.
+    """
+    files: dict[tuple[str, str], list[dict[str, object]]] = {}
+    for path in sorted(root.glob("*/*.json")):
+        if path.stem not in ROLE_FILES:
+            raise ConfigError(f"unknown role file {path.name}")
+        try:
+            records = json.loads(path.read_text())
+        except ValueError as err:
+            raise ConfigError(f"malformed {path}: {err}") from err
+        if not isinstance(records, list):
+            raise ConfigError(f"malformed {path}: not a list")
+        files[(path.parent.name, path.stem)] = records
+    return files
 
 
 def parse_tree(root: Path) -> dict[UserId, Person]:
@@ -90,17 +194,25 @@ def parse_tree(root: Path) -> dict[UserId, Person]:
             folder, a duplicate user id, malformed JSON, or a department
             with no admin (every department needs its own admin).
     """
+    return build_people(read_tree(root))
+
+
+def build_people(
+    files: Mapping[tuple[str, str], Iterable[Mapping[str, object]]],
+) -> dict[UserId, Person]:
+    """Validates tree records (see parse_tree) and returns the people.
+
+    Raises:
+        ConfigError: As for parse_tree.
+    """
     people: dict[UserId, Person] = {}
-    for path in sorted(root.glob("*/*.json")):
-        if path.stem not in ROLE_FILES:
-            raise ConfigError(f"unknown role file {path.name}")
+    for (department, stem), records in sorted(files.items()):
+        if stem not in ROLE_FILES:
+            raise ConfigError(f"unknown role file {stem}.json")
         try:
-            records = json.loads(path.read_text())
-            batch = [
-                _tree_person(r, path.parent.name, path.stem) for r in records
-            ]
-        except (ValueError, KeyError, TypeError, AttributeError) as err:
-            raise ConfigError(f"malformed {path}: {err}") from err
+            batch = [_tree_person(r, department, stem) for r in records]
+        except (KeyError, TypeError, AttributeError) as err:
+            raise ConfigError(f"malformed {department}/{stem}: {err}") from err
         for person in batch:
             if person.user_id in people:
                 raise ConfigError(f"duplicate user {person.user_id}")
@@ -172,3 +284,60 @@ class Directory:
         """Returns a person, or None for an unknown user."""
         with self._lock:
             return self._people.get(user_id)
+
+    def people(self) -> list[Person]:
+        """Everyone, sorted by user id."""
+        with self._lock:
+            return sorted(self._people.values(), key=lambda p: p.user_id)
+
+
+def tree_stamp(root: Path) -> tuple[tuple[str, int, int], ...]:
+    """Name, modification time and size of every file in a users tree."""
+    out = []
+    for path in sorted(root.glob("*/*.json")):
+        try:
+            info = path.stat()
+        except OSError:  # removed while listing
+            continue
+        out.append(
+            (str(path.relative_to(root)), info.st_mtime_ns, info.st_size)
+        )
+    return tuple(out)
+
+
+class DirectoryWatcher:
+    """Reloads a directory when its users tree changes on disk.
+
+    A tree that fails to parse is logged and skipped: the last good copy
+    stays in use, so a bad edit never opens access (unknown users stay
+    unknown) and the next good edit is picked up.
+    """
+
+    def __init__(self, directory: Directory, root: Path) -> None:
+        self._directory = directory
+        self._root = root
+        self._stamp = tree_stamp(root) if root.is_dir() else ()
+
+    def check(self) -> bool:
+        """Reloads if the tree changed; returns whether it reloaded."""
+        if not self._root.is_dir():
+            return False
+        stamp = tree_stamp(self._root)
+        if stamp == self._stamp:
+            return False
+        self._stamp = stamp
+        try:
+            count = self._directory.load(self._root)
+        except ConfigError as err:
+            _LOG.warning("users tree not reloaded: %s", err)
+            return False
+        _LOG.info("users tree reloaded: %d people", count)
+        return True
+
+    def run_forever(self, interval_s: float) -> None:  # pragma: no cover
+        """Checks every interval_s seconds (a daemon thread's target)."""
+        import time  # noqa: PLC0415
+
+        while True:
+            time.sleep(interval_s)
+            self.check()

@@ -19,7 +19,7 @@
  },
  {
   "id": "q4",
-  "user": "stu_ece",
+  "user": "stu_csa",
   "question": "How many external examiners does a CDS thesis need?",
   "expect_doc": null
  },
@@ -31,7 +31,7 @@
  },
  {
   "id": "q6",
-  "user": "staff_acc",
+  "user": "staff_csa",
   "question": "What is the daily allowance for staff duty travel?",
   "expect_doc": "staff-travel"
  },

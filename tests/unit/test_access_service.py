@@ -1,5 +1,7 @@
 """FR-4: the service, the HTTP client and failing closed."""
 
+from pathlib import Path
+
 import httpx
 import pytest
 
@@ -228,8 +230,10 @@ async def test_department_admins_manage_only_their_documents() -> None:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://a") as c:
 
-        async def put(user: str, doc: str, owner: str) -> int:
-            body = {"owner": owner, "departments": [owner]}
+        async def put(
+            user: str, doc: str, owner: str, co: tuple[str, ...] = ()
+        ) -> int:
+            body = {"owner": owner, "co_owners": co, "departments": [owner]}
             r = await c.put(
                 f"/v1/policy/{doc}", json=body, headers=_auth(w.token(user))
             )
@@ -251,3 +255,127 @@ async def test_department_admins_manage_only_their_documents() -> None:
         assert await delete("adm_csa", "csa-new") == 200
         assert await delete("adm_cds", "never-existed") == 403
         assert await delete("adm_inst", "never-existed") == 200
+        # Co-owners: CDS shares its document with CSA; CSA then manages it
+        # too, but cannot drop CDS from it.
+        assert await put("adm_cds", "cds-doc", "cds", ("csa",)) == 200
+        assert await put("adm_csa", "cds-doc", "cds", ("csa",)) == 200
+        assert await put("adm_csa", "cds-doc", "csa") == 403
+        r = await c.get("/v1/policy/cds-doc", headers=_auth(w.token("adm_csa")))
+        assert r.status_code == 200 and r.json()["co_owners"] == ["csa"]
+        assert await delete("adm_csa", "cds-doc") == 200
+
+
+async def test_compact_filter_lists_only_the_non_public_documents() -> None:
+    w = world()
+    async with _app_client(w) as client:
+        token = w.token("u_cds_stu")
+        full = await client.post("/v1/filter", json={}, headers=_auth(token))
+        compact = await client.post(
+            "/v1/filter", json={"compact": True}, headers=_auth(token)
+        )
+        public = await client.get("/v1/public", headers=_auth(token))
+        body = compact.json()
+        assert body["public"] is True
+        union = set(body["doc_ids"]) | set(public.json()["doc_ids"])
+        assert union == set(full.json()["doc_ids"])
+        assert public.json()["policy_version"] == body["policy_version"]
+        stranger = w.issuer.issue("u_not_in_directory", w.clock.now() + 60)
+        r = await client.post(
+            "/v1/filter", json={"compact": True}, headers=_auth(stranger)
+        )
+        assert r.json()["public"] is False and r.json()["doc_ids"] == []
+        assert (await client.get("/v1/public")).status_code == 401
+
+
+async def test_client_fetches_the_public_list_once_per_version() -> None:
+    w = world()
+    paths: list[str] = []
+    app = create_app(
+        w.directory, w.policies, w.issuer.verifier(w.clock), w.clock
+    )
+
+    async def record(request: httpx.Request) -> None:
+        paths.append(request.url.path)
+
+    http = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://access",
+        event_hooks={"request": [record]},
+    )
+    async with http:
+        client = HttpAccessClient(http, "http://access", w.clock, cache_ttl_s=0)
+        a = await client.filter(w.token("u_cds_stu"))
+        b = await client.filter(w.token("u_ece_fac"))
+        assert paths.count("/v1/public") == 1
+        assert a.doc_ids != b.doc_ids
+        w.policies.delete(DocId("d21"))
+        c = await client.filter(w.token("u_ece_fac"))
+        assert paths.count("/v1/public") == 2
+        assert "d21" not in c.doc_ids
+
+
+async def test_public_list_from_another_version_denies() -> None:
+    stale = httpx.Response(200, json={"doc_ids": ["d1"], "policy_version": 1})
+    compact = httpx.Response(
+        200, json={"public": True, "doc_ids": [], "policy_version": 2}
+    )
+    client, _ = _client([compact, stale])
+    with pytest.raises(AccessDenied, match="policy changed"):
+        await client.filter("t")
+
+
+async def test_users_with_nothing_extra_share_one_set() -> None:
+    compact = httpx.Response(
+        200, json={"public": True, "doc_ids": [], "policy_version": 1}
+    )
+    public = httpx.Response(200, json={"doc_ids": ["d1"], "policy_version": 1})
+    client, _ = _client([compact, public, compact, compact])
+    first = await client.filter("t1")
+    second = await client.filter("t2")
+    assert first.doc_ids is second.doc_ids == {"d1"}
+
+
+async def test_metrics_get_policy_and_change_listener() -> None:
+    w = world()
+    changes: list[tuple[str, object]] = []
+    app = create_app(
+        w.directory,
+        w.policies,
+        w.issuer.verifier(w.clock),
+        w.clock,
+        on_change=lambda kind, what: changes.append((kind, what)),
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://a") as c:
+        admin = _auth(w.token("u_admin"))
+        await c.post("/v1/authorize", json={"doc_id": "d02"}, headers=admin)
+        await c.put("/v1/policy/n1", json={"roles": ["faculty"]}, headers=admin)
+        r = await c.get("/v1/policy/n1", headers=admin)
+        assert r.json()["roles"] == ["faculty"]
+        r = await c.get("/v1/policy/n1", headers=_auth(w.token("u_cds_stu")))
+        assert r.status_code == 403
+        assert (await c.get("/v1/policy/zz", headers=admin)).status_code == 404
+        await c.delete("/v1/policy/n1", headers=admin)
+        text = (await c.get("/metrics")).text
+    assert 'askiisc_access_seconds_count{call="authorize"} 1.0' in text
+    assert 'askiisc_access_policy_changes_total{kind="put"} 1.0' in text
+    assert [k for k, _ in changes] == ["put", "delete"]
+    assert changes[1][1] == "n1"
+
+
+def test_overrides_survive_a_restart(tmp_path: Path) -> None:
+    from askiisc.access.policy import DocPolicy, PolicyStore
+    from askiisc.access.server import OverrideLog, load_policies
+
+    log = OverrideLog(tmp_path / "private" / "overrides.jsonl")
+    corpus = Path("eval/datasets/sample/corpus")
+    first = load_policies(corpus, log)
+    some = sorted(first.snapshot()[1])[0]
+    log.record("put", DocPolicy(doc_id=DocId("added"), roles=frozenset({"x"})))
+    log.record("delete", DocId(some))
+    (tmp_path / "private" / "overrides.jsonl").open("a").write("\n")
+    again = load_policies(corpus, log)
+    policies = again.snapshot()[1]
+    assert "added" in policies and some not in policies
+    assert log.replay(PolicyStore()) == 2
+    assert OverrideLog(tmp_path / "none.jsonl").replay(PolicyStore()) == 0

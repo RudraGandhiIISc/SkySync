@@ -4,13 +4,17 @@
   "groups": [
    "students",
    "mtech"
-  ]
+  ],
+  "program": "mtech-cds",
+  "joined": 2025
  },
  {
   "user_id": "stu_cds_phd",
   "groups": [
    "students",
    "phd"
-  ]
+  ],
+  "program": "phd",
+  "joined": 2022
  }
 ]

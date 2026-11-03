@@ -3,6 +3,7 @@
   "user_id": "staff_cds",
   "groups": [
    "staff"
-  ]
+  ],
+  "kind": "administrative"
  }
 ]

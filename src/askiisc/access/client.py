@@ -11,6 +11,7 @@ from typing import Protocol
 import httpx
 
 from askiisc.access.policy import AccessFilter, PolicyEngine
+from askiisc.common import requestid
 from askiisc.common.clock import Clock
 from askiisc.common.errors import AccessDenied, AuthError
 from askiisc.common.targets import ACCESS_CLIENT_TIMEOUT_S
@@ -72,11 +73,19 @@ class LocalAccess:
         return self._engine.filter(self._user(token), when)
 
 
+PUBLIC_LIST_TIMEOUT_S = 5.0
+"""The plain public list is large and fetched once per policy version."""
+
+
 class HttpAccessClient:
     """HTTP client of the access service.
 
     Timeouts are short (50 ms). A connection error is retried once; a deny is
     never retried. Anything unexpected raises AccessDenied.
+
+    Filters are fetched in compact form: the plain public documents (the
+    same for every user) are fetched once per policy version, and each
+    request carries only the user's other readable documents.
     """
 
     def __init__(
@@ -93,18 +102,24 @@ class HttpAccessClient:
         self._timeout = timeout_s
         self._ttl = cache_ttl_s
         self._cache: dict[str, tuple[float, AccessFilter]] = {}
+        self._public: AccessFilter | None = None
 
     async def _post(
-        self, path: str, token: str, body: dict[str, object]
+        self,
+        path: str,
+        token: str,
+        body: dict[str, object] | None,
+        timeout_s: float | None = None,
     ) -> dict[str, object]:
-        headers = {"Authorization": f"Bearer {token}"}
+        headers = {"Authorization": f"Bearer {token}", **requestid.headers()}
         for attempt in range(2):
             try:
-                response = await self._client.post(
+                response = await self._client.request(
+                    "GET" if body is None else "POST",
                     self._base + path,
                     json=body,
                     headers=headers,
-                    timeout=self._timeout,
+                    timeout=timeout_s or self._timeout,
                 )
             except httpx.ConnectError as err:
                 if attempt == 0:
@@ -152,13 +167,42 @@ class HttpAccessClient:
             stored, cached = self._cache[key]
             if now - stored < self._ttl:
                 return cached
-        data = await self._post("/v1/filter", token, {"at": at})
-        doc_ids, version = data.get("doc_ids"), data.get("policy_version")
-        if not isinstance(doc_ids, list) or not isinstance(version, int):
-            raise AccessDenied("malformed access response")
-        result = AccessFilter(
-            frozenset(DocId(str(d)) for d in doc_ids), version
+        data = await self._post(
+            "/v1/filter", token, {"at": at, "compact": True}
         )
+        extra, version = _ids_and_version(data)
+        result = AccessFilter(extra, version)
+        if data.get("public") is True:
+            public = await self._public_set(token, version)
+            # Users with nothing extra share one set object, so the index
+            # can reuse its mask for all of them.
+            result = AccessFilter(public | extra if extra else public, version)
         if at is None:
             self._cache[key] = (now, result)
         return result
+
+    async def _public_set(self, token: str, version: int) -> frozenset[DocId]:
+        """The plain public documents at exactly this policy version.
+
+        Raises:
+            AccessDenied: If the service cannot give that version (a policy
+                changed in between; the caller's request fails closed).
+        """
+        cached = self._public
+        if cached is None or cached.policy_version != version:
+            data = await self._post(
+                "/v1/public", token, None, PUBLIC_LIST_TIMEOUT_S
+            )
+            doc_ids, got = _ids_and_version(data)
+            cached = AccessFilter(doc_ids, got)
+            self._public = cached
+        if cached.policy_version != version:
+            raise AccessDenied("policy changed during the request")
+        return cached.doc_ids
+
+
+def _ids_and_version(data: dict[str, object]) -> tuple[frozenset[DocId], int]:
+    doc_ids, version = data.get("doc_ids"), data.get("policy_version")
+    if not isinstance(doc_ids, list) or not isinstance(version, int):
+        raise AccessDenied("malformed access response")
+    return frozenset(DocId(str(d)) for d in doc_ids), version
