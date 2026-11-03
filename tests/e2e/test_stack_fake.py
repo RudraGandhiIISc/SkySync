@@ -119,7 +119,7 @@ async def test_full_stack_over_http(tmp_path: Path) -> None:
         answer = cold[-1][1]
         assert answer["citations"][0]["doc_id"] == "inst-hostel-fees"  # type: ignore[index]
         forbidden = _events(
-            (await ask("stu_ece", "CDS thesis external examiners")).text
+            (await ask("stu_csa", "CDS thesis external examiners")).text
         )
         retrieved = {d for _, d in forbidden[-1][1]["retrieved"]}  # type: ignore[union-attr]
         assert "cds-thesis" not in retrieved
@@ -135,7 +135,7 @@ async def test_full_stack_over_http(tmp_path: Path) -> None:
         await asyncio.sleep(3.5)  # idle timeout passes: scaled to zero
         assert pool.list_workers() == []
         access_server.stop()
-        down = await ask("staff_acc", "travel allowance")
+        down = await ask("staff_csa", "travel allowance")
         assert down.status_code == 403
         records = audit.read()
         assert {r.decision for r in records} >= {

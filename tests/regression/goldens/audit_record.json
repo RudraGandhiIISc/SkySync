@@ -1,0 +1,151 @@
+{
+ "example": {
+  "as_of": 1792800000.0,
+  "cache_hit": false,
+  "chunk_ids": [
+   "d01@v2#0"
+  ],
+  "completion_tokens": 120,
+  "decision": "answered",
+  "documents": [
+   {
+    "doc_id": "d01",
+    "version": 2
+   }
+  ],
+  "latency_ms": 1450.5,
+  "model": "Qwen3-4B-Instruct-2507",
+  "policy_version": 7,
+  "prompt_tokens": 900,
+  "query_hash": "666257e306090fd3a83c1251b28a9825910a91087c21a4d194bac06265d65963",
+  "request_id": "r-0001",
+  "stale": false,
+  "tenant": "cds",
+  "time": 1792800000.0,
+  "user_hash": "ffbf52cad504b307b5ea5deba795e435f25117ead070f8ad356dd66dad4b8059"
+ },
+ "schema": {
+  "$defs": {
+   "DocVersion": {
+    "description": "A document version used for an answer.",
+    "properties": {
+     "doc_id": {
+      "title": "Doc Id",
+      "type": "string"
+     },
+     "version": {
+      "title": "Version",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "doc_id",
+     "version"
+    ],
+    "title": "DocVersion",
+    "type": "object"
+   }
+  },
+  "additionalProperties": false,
+  "description": "One request's record. No raw text fields exist.",
+  "properties": {
+   "as_of": {
+    "title": "As Of",
+    "type": "number"
+   },
+   "cache_hit": {
+    "default": false,
+    "title": "Cache Hit",
+    "type": "boolean"
+   },
+   "chunk_ids": {
+    "default": [],
+    "items": {
+     "type": "string"
+    },
+    "title": "Chunk Ids",
+    "type": "array"
+   },
+   "completion_tokens": {
+    "default": 0,
+    "title": "Completion Tokens",
+    "type": "integer"
+   },
+   "decision": {
+    "enum": [
+     "answered",
+     "abstained",
+     "rejected",
+     "denied",
+     "error"
+    ],
+    "title": "Decision",
+    "type": "string"
+   },
+   "documents": {
+    "default": [],
+    "items": {
+     "$ref": "#/$defs/DocVersion"
+    },
+    "title": "Documents",
+    "type": "array"
+   },
+   "latency_ms": {
+    "default": 0.0,
+    "title": "Latency Ms",
+    "type": "number"
+   },
+   "model": {
+    "title": "Model",
+    "type": "string"
+   },
+   "policy_version": {
+    "title": "Policy Version",
+    "type": "integer"
+   },
+   "prompt_tokens": {
+    "default": 0,
+    "title": "Prompt Tokens",
+    "type": "integer"
+   },
+   "query_hash": {
+    "title": "Query Hash",
+    "type": "string"
+   },
+   "request_id": {
+    "title": "Request Id",
+    "type": "string"
+   },
+   "stale": {
+    "default": false,
+    "title": "Stale",
+    "type": "boolean"
+   },
+   "tenant": {
+    "title": "Tenant",
+    "type": "string"
+   },
+   "time": {
+    "title": "Time",
+    "type": "number"
+   },
+   "user_hash": {
+    "title": "User Hash",
+    "type": "string"
+   }
+  },
+  "required": [
+   "request_id",
+   "time",
+   "as_of",
+   "user_hash",
+   "query_hash",
+   "tenant",
+   "policy_version",
+   "model",
+   "decision"
+  ],
+  "title": "AuditRecord",
+  "type": "object"
+ }
+}

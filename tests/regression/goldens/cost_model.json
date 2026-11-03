@@ -1,0 +1,33 @@
+{
+ "failed start, nothing served": {
+  "completed": 0,
+  "correct": 0,
+  "gpu_hours": 0.05277777777777778,
+  "per_1k_correct": "inf",
+  "per_1k_queries": "inf",
+  "tenant_token_share": {}
+ },
+ "one worker, busy then idle": {
+  "completed": 1000,
+  "correct": 800,
+  "gpu_hours": 0.35138888888888886,
+  "per_1k_correct": 0.43923611111111105,
+  "per_1k_queries": 0.35138888888888886,
+  "tenant_token_share": {
+   "cds": 0.6,
+   "ece": 0.4
+  }
+ },
+ "two workers overlapping": {
+  "completed": 5000,
+  "correct": 4100,
+  "gpu_hours": 1.5,
+  "per_1k_correct": 0.36585365853658536,
+  "per_1k_queries": 0.3,
+  "tenant_token_share": {
+   "cds": 0.25,
+   "csa": 0.5,
+   "ece": 0.25
+  }
+ }
+}

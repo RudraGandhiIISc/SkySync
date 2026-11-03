@@ -89,6 +89,7 @@ def test_no_secrets_committed() -> None:
         if (
             not path.is_file()
             or ".git" in path.parts
+            or ".venv" in path.parts  # git-ignored, never committed
             or "build" in path.parts
             or "logs" in path.parts
             or "__pycache__" in path.parts
