@@ -1,0 +1,27 @@
+# The single-model baseline (Qwen3-4B-Instruct-2507, 2026-10-19/20), as in
+# docs/results/baseline-v1/README.md. The scorecard shows these until a
+# Locust run measures the requirement again. verdict: pass | fail | pending
+date: "2026-10-20"
+results:
+  FR-1: {value: "refusals 90.0%; citations support the answer 96.2%", verdict: pass}
+  FR-2: {value: "0 forbidden chunks in 12,000 probes; recall exact", verdict: pass}
+  FR-3: {value: "220/220 matrix; 0 leaks 10 s after revocation", verdict: pass}
+  FR-4: {value: "both implementations conform; all denied when killed", verdict: pass}
+  FR-5: {value: "60/60 simulated; live 18/20 answers, stale flag 19/20", verdict: pass}
+  FR-6: {value: "unit and e2e tests only (deferred)", verdict: pending}
+  FR-7: {value: "18.8x throughput, -90% p99, 99.7% hit rate, -84% TTFT", verdict: pass}
+  FR-8: {value: "config switch verified; other eight models pending", verdict: pending}
+  FR-9: {value: "2 workers in 74 s; never more than 2 (mock index)", verdict: pass}
+  FR-10: {value: "20/20 held and answered; zero 11 s past the timeout", verdict: pass}
+  FR-11: {value: "50% / 50% (simulation)", verdict: pass}
+  FR-12: {value: "169/169 audited; 0 questions, 0 user ids", verdict: pass}
+  NFR-1: {value: "p95 292 s (Milvus Lite bottleneck, since fixed)", verdict: fail}
+  NFR-2: {value: "p50 25.6 s, max 26.1 s", verdict: pass}
+  NFR-3: {value: "5,195 output tokens/s at concurrency 64", verdict: pass}
+  NFR-4: {value: "1 to 2 in 74 s; 10.5% errors; search about 1.1 s", verdict: fail}
+  NFR-5: {value: "simulation only (deferred)", verdict: pending}
+  NFR-6: {value: "0.12 GPU-h per 1k (burst); 24 h replay deferred", verdict: pending}
+  NFR-7: {value: "accuracy 70.4% (judge), citations 96.2%", verdict: fail}
+  NFR-8: {value: "10/10 revisions ingested; long run deferred", verdict: pending}
+  NFR-9: {value: "0 leaks; no raw text; red-team suite not built", verdict: pending}
+  NFR-10: {value: "0 false allows; engine 1.7 ms; HTTP filter too slow", verdict: fail}

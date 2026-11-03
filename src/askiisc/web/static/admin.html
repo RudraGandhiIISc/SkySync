@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ask IISc Admin</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="denied" class="denied hidden">
+  <span class="mark">A</span>
+  <h2>This page is for admins</h2>
+  <p class="muted">Department and institute admins manage people, documents and access here.</p>
+  <a href="/"><button class="primary" type="button">Back to chat</button></a>
+</div>
+
+<div id="shell" class="admin hidden">
+  <nav class="admin-nav" id="nav">
+    <div class="brand"><span class="mark">A</span><div>Ask IISc<small>Administration</small></div></div>
+    <button data-tab="overview" class="active" data-icon="chart">Overview</button>
+    <button data-tab="people" data-icon="users">People</button>
+    <button data-tab="requests" data-icon="list">Request log</button>
+    <button data-tab="documents" data-icon="doc">Documents</button>
+    <button data-tab="grafana" data-icon="bolt">Grafana</button>
+    <div class="group">Reports</div>
+    <button data-tab="requirements" data-icon="check">Requirements</button>
+    <button data-tab="models" data-icon="cpu">Models</button>
+    <div class="group">App</div>
+    <a href="/" data-icon="chat">Back to chat</a>
+    <div class="who" id="who"></div>
+  </nav>
+
+  <div class="admin-main">
+    <header class="admin-head">
+      <button class="icon nav-toggle" id="nav-toggle" type="button" data-icon="menu"></button>
+      <h1 id="title">Overview</h1>
+      <span class="spacer"></span>
+      <span class="toggle" id="window-box"><label for="window">Window</label>
+        <select id="window">
+          <option value="900">15 min</option>
+          <option value="3600" selected>1 hour</option>
+          <option value="21600">6 hours</option>
+          <option value="86400">24 hours</option>
+          <option value="604800">7 days</option>
+        </select></span>
+      <span class="toggle" id="origin-box"><label for="origin">Users</label>
+        <select id="origin">
+          <option value="real" selected>Real</option>
+          <option value="locust">Locust</option>
+          <option value="">Real + Locust</option>
+        </select></span>
+      <a id="g-open" class="hidden" target="_blank" rel="noopener"><button type="button">Open in Grafana ↗</button></a>
+      <label class="toggle"><input type="checkbox" id="auto" checked> Auto-refresh</label>
+      <button class="icon" id="theme" type="button" title="Light / dark" data-icon="moon"></button>
+    </header>
+
+    <main class="admin-body">
+      <!-- overview -->
+      <section data-panel="overview">
+        <div class="headline">
+          <div class="hero" id="hero"></div>
+          <div class="stats" id="stats"></div>
+        </div>
+        <div class="grid2">
+          <div class="panel"><div class="panel-head"><div><h2>Requests per second</h2><p class="desc" id="rate-desc">Real users and Locust load-test users; errors and rejections in red.</p></div></div>
+            <div class="chart" id="chart-rate"></div><div class="legend" id="legend-rate"></div></div>
+          <div class="panel"><div class="panel-head"><div><h2>Latency of answered requests</h2><p class="desc">Question to last word. The line marks the 3.5 s target for p95.</p></div></div>
+            <div class="chart" id="chart-latency"></div><div class="legend" id="legend-latency"></div></div>
+        </div>
+        <div class="panel"><div class="panel-head"><h2>Serving job</h2><span id="serve-state" style="margin-left:auto"></span></div><div id="system"></div></div>
+        <div class="grid-1-2">
+          <div class="panel"><h2>How requests ended</h2><p class="desc">Outcomes and entry points in the chosen window.</p><div id="outcomes"></div></div>
+          <div class="panel"><h2>Busiest users</h2><p class="desc">Request counts only. Question and answer text is never stored.</p><div class="table-wrap" id="top-users"></div></div>
+        </div>
+      </section>
+
+      <!-- people -->
+      <section data-panel="people" class="hidden">
+        <div class="page-head">
+          <p class="desc" id="people-desc"></p>
+          <span class="spacer"></span>
+          <button id="bulk-open" type="button" data-icon="upload">Bulk add</button>
+          <button id="add-open" class="primary" type="button" data-icon="plus">Add person</button>
+        </div>
+        <div class="tabs" id="people-tabs" role="tablist" aria-label="Who to show">
+          <button type="button" role="tab" data-view="all">Everyone <span class="count"></span></button>
+          <button type="button" role="tab" data-view="real" aria-selected="true">Real people <span class="count"></span></button>
+          <button type="button" role="tab" data-view="locust">Locust test accounts <span class="count"></span></button>
+          <button type="button" role="tab" data-view="attention">Needs attention <span class="count attention"></span></button>
+        </div>
+        <div class="toolbar people-filters">
+          <label class="search" data-icon="search"><span class="sr-only">Search</span><input id="p-q" type="search" placeholder="Search e-mail or group"></label>
+          <select id="p-dept" aria-label="Department"><option value="">All departments</option></select>
+          <select id="p-role" aria-label="Role"><option value="">All roles</option></select>
+          <select id="p-prog" aria-label="Programme"><option value="">All programmes</option></select>
+          <select id="p-year" aria-label="Joining year"><option value="">All years</option></select>
+          <select id="p-acct" aria-label="Status"><option value="">Any status</option><option value="active">Active</option><option value="not registered">Not registered</option><option value="suspended">Suspended</option><option value="not allowed">Not allowed</option><option value="disabled">Disabled</option></select>
+        </div>
+        <div class="bulk-bar hidden" id="people-bulk" role="region" aria-label="Selected people">
+          <strong id="bulk-count"></strong>
+          <button type="button" data-bulk="revoke" data-icon="lock">Suspend access</button>
+          <button type="button" data-bulk="restore" data-icon="check">Restore access</button>
+          <button type="button" class="icon" data-bulk="clear">Clear</button>
+        </div>
+        <div class="people-card">
+          <div class="table-wrap bare" id="people-table"></div>
+          <div class="table-foot"><span class="muted small" id="people-count"></span><span id="people-pager"></span></div>
+        </div>
+      </section>
+
+      <!-- grafana -->
+      <section data-panel="grafana" class="hidden">
+        <div class="empty-note hidden" id="g-none">Grafana is not running in this serving job.</div>
+        <iframe id="g-frame" class="grafana-frame" title="Grafana Ask IISc dashboard" referrerpolicy="no-referrer"></iframe>
+      </section>
+
+      <!-- request log -->
+      <section data-panel="requests" class="hidden">
+        <div class="panel">
+          <div class="panel-head"><h2>Request log</h2><span class="spacer"></span><a id="csv" href="#"><button type="button" data-icon="download">Export CSV</button></a></div>
+          <p class="desc">One row per request. Question and answer text is never stored. "Logs" opens that request's log lines in Grafana.</p>
+          <div class="filters">
+            <input id="f-user" placeholder="User id">
+            <input id="f-dept" placeholder="Department">
+            <select id="f-origin"><option value="false" selected>Real users</option><option value="true">Locust</option><option value="">Real + Locust</option></select>
+            <select id="f-source"><option value="">Any entry point</option><option value="chat">Saved chat</option><option value="temporary">Temporary chat</option></select>
+            <select id="f-decision"><option value="">Any outcome</option><option>answered</option><option>abstained</option><option>rejected</option><option>denied</option><option>error</option></select>
+            <input id="f-status" placeholder="HTTP status">
+          </div>
+          <div class="toolbar small muted">Grafana address in this browser: <input id="grafana-base" style="max-width:20em" placeholder="http://localhost:13000"></div>
+          <div class="table-wrap" id="req-table"></div>
+          <div id="req-pager"></div>
+        </div>
+      </section>
+
+      <!-- documents -->
+      <section data-panel="documents" class="hidden">
+        <div class="page-head">
+          <p class="desc">Find a document to change who can read it or to publish a new version. Every version is kept; only the current one is searched.</p>
+          <span class="spacer"></span>
+          <button id="u-open" class="primary" type="button" data-icon="upload">Upload new document</button>
+        </div>
+        <div class="doc-layout">
+          <div class="panel doc-find">
+            <label class="search" data-icon="search"><span class="sr-only">Search documents</span><input id="d-q" type="search" placeholder="Search title or id"></label>
+            <select id="d-site" aria-label="Site"><option value="">All sites</option></select>
+            <div class="doc-count muted small" id="d-count"></div>
+            <div class="doc-list" id="d-list" role="listbox" aria-label="Documents"></div>
+          </div>
+          <div class="panel doc-detail">
+            <div class="doc-empty" id="d-empty">
+              <span class="doc-empty-icon" data-icon="doc"></span>
+              <h2>Choose a document</h2>
+              <p class="muted" id="d-empty-text">Pick one on the left to see who can read it, its versions, and to publish a new version.</p>
+              <ul class="doc-tips muted small">
+                <li>Search by any words of the title, or by id.</li>
+                <li>Filter by site to see one department's pages.</li>
+                <li>Uploading never replaces a document: new versions are published from the document itself.</li>
+              </ul>
+              <button class="primary" type="button" id="d-empty-upload" data-icon="upload">Upload new document</button>
+            </div>
+            <div class="hidden" id="d-body">
+              <div class="panel-head">
+                <div><h2 id="d-title"></h2><div class="muted small" id="d-meta"></div></div>
+                <span class="spacer"></span><a id="d-link" target="_blank" rel="noopener" class="small">Open the source page ↗</a>
+                <button type="button" class="icon" id="d-close" data-icon="x" title="Close this document" aria-label="Close this document"></button>
+              </div>
+              <div class="tabs" id="d-tabs" role="tablist" aria-label="Document">
+                <button type="button" role="tab" data-dpane="access" aria-selected="true">Who can read it</button>
+                <button type="button" role="tab" data-dpane="versions">Versions</button>
+                <button type="button" role="tab" data-dpane="new">New version</button>
+              </div>
+              <div data-pane="access">
+                <div id="p-policy"></div>
+                <div class="buttons-row">
+                  <button class="primary" id="p-save" type="button">Save access</button>
+                  <button class="danger" id="p-revoke" type="button">Revoke all access</button>
+                </div>
+                <div class="error" id="p-msg"></div>
+                <details style="margin-top:14px"><summary>Show as JSON</summary><pre class="cmd" id="p-json"></pre></details>
+              </div>
+              <div data-pane="versions" class="hidden"><div class="table-wrap bare" id="h-table"></div></div>
+              <div data-pane="new" class="hidden">
+                <div class="grid2">
+                  <div><div class="label">Upload a file</div><p class="hint">PDF, HTML or text, up to 20 MB. Its text becomes the new current version.</p>
+                    <input id="v-file" type="file" accept=".pdf,.html,.htm,.txt"><div style="margin-top:10px"><button class="primary" id="v-send" type="button" data-icon="upload">Publish new version</button></div></div>
+                  <div><div class="label">Or paste new text</div>
+                    <textarea id="r-text" class="code" placeholder="New document text"></textarea>
+                    <div style="margin-top:10px"><button id="r-save" type="button">Publish text as new version</button></div></div>
+                </div>
+                <div class="error" id="v-msg"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+
+      <!-- requirements -->
+      <section data-panel="requirements" class="hidden">
+        <div class="page-head"><p class="desc">The latest result for each requirement in the PRD, from the newest run that measures it (otherwise the baseline-v1 run of 2026-10-20).</p></div>
+        <div class="req-stats" id="req-stats"></div>
+        <div class="tabs" id="req-tabs" role="tablist" aria-label="Which requirements">
+          <button type="button" role="tab" data-rview="all" aria-selected="true">All <span class="count"></span></button>
+          <button type="button" role="tab" data-rview="fail">Failing <span class="count attention"></span></button>
+          <button type="button" role="tab" data-rview="pass">Passing <span class="count"></span></button>
+          <button type="button" role="tab" data-rview="pending">Pending <span class="count"></span></button>
+        </div>
+        <div id="req-list"></div>
+      </section>
+
+      <!-- models -->
+      <section data-panel="models" class="hidden">
+        <div class="panel">
+          <h2>Model comparison</h2>
+          <p class="desc">The nine models of the PRD against the targets for their size. Pending models have not been measured yet (Phase 13).</p>
+          <div class="table-wrap" id="models-table"></div>
+        </div>
+        <div class="panel">
+          <h2>Switching the model</h2>
+          <p class="desc" id="models-active"></p>
+          <p class="desc">There is no hot swap: restart the serving job with another <code>ASKIISC_MODEL</code>. On the server, from the repo folder:</p>
+          <pre class="cmd" id="models-switch"></pre>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<datalist id="dept-list"></datalist>
+
+<dialog id="dlg-person">
+  <form id="person-form" method="dialog">
+    <h3 id="person-title">Add person</h3>
+    <div class="field"><label for="pf-id">IISc e-mail</label><input id="pf-id" required placeholder="Their IISc e-mail address">
+      <div class="hint">They create their own account with this address on the sign-in page. Check the spelling.</div></div>
+    <div class="grid2" style="gap:12px">
+      <div class="field"><label for="pf-dept">Department</label><select id="pf-dept" required></select></div>
+      <div class="field"><label for="pf-role">Role</label><select id="pf-role"></select></div>
+    </div>
+    <div class="grid2" style="gap:12px">
+      <div class="field" id="pf-prog-field"><label for="pf-prog">Programme</label><select id="pf-prog"></select></div>
+      <div class="field" id="pf-kind-field"><label for="pf-kind">Type</label><select id="pf-kind"></select></div>
+      <div class="field"><label for="pf-year" id="pf-year-label">Joining year</label><input id="pf-year" type="number" min="1950" max="2100" step="1" inputmode="numeric" placeholder="e.g. 2025"></div>
+    </div>
+    <div class="field"><label for="pf-groups">Extra access groups</label><input id="pf-groups" placeholder="comma separated, e.g. hostel-committee">
+      <div class="hint" id="pf-auto">Department, role and programme groups are added automatically.</div></div>
+    <div class="error" id="pf-msg"></div>
+    <div class="buttons"><button type="button" id="pf-cancel">Cancel</button><button class="primary" id="pf-save" type="submit">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-upload" class="wide">
+  <h3>Upload a new document</h3>
+  <div class="grid2" style="gap:12px">
+    <div class="field"><label for="u-doc">Document id</label><input id="u-doc" placeholder="csa-lab-rules-2026" autocomplete="off" spellcheck="false">
+      <div class="hint" id="u-doc-hint">Lower-case letters, digits, "-", "." and "_". It must not be in use.</div></div>
+    <div class="field"><label for="u-file">File</label><input id="u-file" type="file" accept=".pdf,.html,.htm,.txt"></div>
+  </div>
+  <div id="u-policy"></div>
+  <div class="error" id="u-msg"></div>
+  <div class="buttons"><button type="button" id="u-cancel">Cancel</button><button class="primary" id="u-send" type="button" data-icon="upload">Upload and publish</button></div>
+</dialog>
+
+<dialog id="dlg-bulk" class="wide">
+  <h3>Bulk add people</h3>
+  <p class="muted small">CSV with a header row. Columns: <code>user_id</code> (required), <code>department</code>, <code>role</code> (student, faculty, staff), <code>program</code> (students: <code>phd</code>, <code>mtech-research</code>, <code>mtech-cse</code> in CSA, <code>mtech-cds</code> in CDS), <code>joined</code> (year; required for students), <code>kind</code> (faculty: <code>visiting</code>; staff: <code>administrative</code>, <code>technical</code>, <code>research</code>), <code>groups</code> (separated by <code>;</code>). Department defaults to yours; role to student. Nothing is added unless every row is valid.</p>
+  <pre class="cmd">user_id,role,program,joined,kind,groups
+&lt;e-mail&gt;,student,phd,2025,,lab-ml
+&lt;e-mail&gt;,faculty,,,visiting,</pre>
+  <div class="toolbar"><input id="b-file" type="file" accept=".csv,text/csv"></div>
+  <textarea id="b-text" class="code" placeholder="…or paste the CSV here"></textarea>
+  <div class="error" id="b-msg"></div>
+  <div class="table-wrap bare" id="b-preview" style="max-height:280px;overflow:auto"></div>
+  <div class="buttons"><button type="button" id="b-close">Close</button><button type="button" id="b-check">Check</button><button class="primary" type="button" id="b-apply" disabled>Add people</button></div>
+</dialog>
+
+<script src="/static/ui.js"></script>
+<script src="/static/policy_editor.js"></script>
+<script src="/static/admin.js"></script>
+</body>
+</html>

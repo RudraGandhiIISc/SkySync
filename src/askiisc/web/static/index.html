@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ask IISc</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<section id="auth" class="auth hidden">
+  <header class="auth-top">
+    <span class="mark">A</span>
+    <div class="name">Ask IISc<span>Indian Institute of Science</span></div>
+  </header>
+
+  <div class="auth-main">
+    <div>
+    <!-- sign in -->
+    <form id="login-form" class="auth-card" autocomplete="on">
+      <h1>Sign in</h1>
+      <p class="sub">For IISc people your department admin has added.</p>
+      <div class="field"><label for="login-user">IISc e-mail</label>
+        <input id="login-user" name="username" autocomplete="username" inputmode="email" spellcheck="false" autocapitalize="off" required enterkeyhint="next"></div>
+      <div class="field">
+        <div class="row-between"><label for="current-password" class="label">Password</label>
+          <button type="button" class="linklike" id="to-forgot">Forgot password?</button></div>
+        <div class="pw-wrap"><input id="current-password" name="password" type="password" autocomplete="current-password" required enterkeyhint="done"><button type="button" data-show="current-password">Show</button></div></div>
+      <div class="error" id="login-error" role="alert"></div>
+      <button class="primary block" type="submit">Sign in</button>
+      <div class="auth-switch">New here? <button type="button" class="linklike" id="to-register">Create account</button></div>
+    </form>
+
+    <!-- create account -->
+    <form id="register-form" class="auth-card hidden" autocomplete="on">
+      <h1>Create account</h1>
+      <p class="sub">Use the IISc e-mail your department admin added. We e-mail you a link to confirm it.</p>
+      <div class="field"><label for="reg-user">IISc e-mail</label>
+        <input id="reg-user" name="username" autocomplete="username" inputmode="email" spellcheck="false" autocapitalize="off" required></div>
+      <div class="field"><label for="reg-password">Password</label>
+        <div class="pw-wrap"><input id="reg-password" name="new-password" type="password" autocomplete="new-password" required maxlength="256" aria-describedby="reg-hint"><button type="button" data-show="reg-password">Show</button></div>
+        <div class="hint" id="reg-hint">At least 8 characters, not your e-mail. A long phrase is best.</div></div>
+      <div class="field"><label for="reg-again">Repeat password</label>
+        <input id="reg-again" type="password" autocomplete="new-password" required maxlength="256"></div>
+      <div class="error" id="reg-msg" role="alert"></div>
+      <button class="primary block" id="reg-send" type="submit">Create account</button>
+      <div class="auth-switch">Have an account? <button type="button" class="linklike" data-to="login">Sign in</button></div>
+    </form>
+
+    <!-- forgot password -->
+    <form id="forgot-form" class="auth-card hidden">
+      <h1>Reset your password</h1>
+      <p class="sub" id="forgot-sub">Enter your IISc e-mail. We send it a link to choose a new password; it works once, for 10 minutes.</p>
+      <div class="field" id="forgot-field"><label for="forgot-user">IISc e-mail</label>
+        <input id="forgot-user" name="username" autocomplete="username" inputmode="email" spellcheck="false" autocapitalize="off" required></div>
+      <div class="error" id="forgot-msg" role="status"></div>
+      <button class="primary block" id="forgot-send" type="submit">Send reset link</button>
+      <div class="auth-switch"><button type="button" class="linklike" data-to="login">Back to sign in</button></div>
+    </form>
+
+    <!-- choose a password (from a reset link) -->
+    <form id="set-form" class="auth-card hidden">
+      <h1>Choose your password</h1>
+      <p class="sub">This link works once. Any other session of yours is signed out.</p>
+      <div class="field"><label for="set-password">New password</label>
+        <div class="pw-wrap"><input id="set-password" name="new-password" type="password" autocomplete="new-password" required minlength="8" maxlength="256" aria-describedby="set-hint"><button type="button" data-show="set-password">Show</button></div>
+        <div class="hint" id="set-hint">At least 8 characters. A long phrase is best.</div></div>
+      <div class="field"><label for="set-again">Repeat it</label>
+        <input id="set-again" type="password" autocomplete="new-password" required></div>
+      <div class="error" id="set-msg" role="alert"></div>
+      <button class="primary block" type="submit">Set password</button>
+    </form>
+
+    <div class="auth-points">
+      <div data-icon="lock">Only documents you are allowed to read are used to answer you.</div>
+      <div data-icon="doc">Every answer links to the circulars and handbooks it comes from.</div>
+      <div data-icon="shield">Your chats are encrypted. Admins see usage counts, never what you asked.</div>
+    </div>
+    </div>
+  </div>
+  <footer class="auth-foot">Ask IISc, a DS252 course project by team SkySync</footer>
+</section>
+
+<section id="app" class="app hidden">
+  <aside id="side" class="side">
+    <div class="side-head">
+      <div class="brand"><span class="mark">A</span> Ask IISc</div>
+      <button class="icon" id="hide-side" type="button" title="Close sidebar" data-icon="sidebar"></button>
+    </div>
+    <div class="side-actions">
+      <button id="new-chat" type="button" data-icon="edit">New chat</button>
+      <button id="temp-chat" type="button" data-icon="ghost" title="Not saved to your history">Temporary chat</button>
+    </div>
+    <div class="side-search"><span data-icon="search"></span><input id="search" type="search" placeholder="Search chats"></div>
+    <nav id="chat-list" class="chats" aria-label="Chats"></nav>
+    <div class="side-foot">
+      <div id="me-menu" class="menu hidden">
+        <a id="admin-link" class="hidden" href="/admin" data-icon="shield">Admin dashboard</a>
+        <button id="settings" type="button" data-icon="settings">Settings</button>
+        <button id="theme" type="button" data-icon="moon">Switch light or dark</button>
+        <hr>
+        <button id="logout" type="button" data-icon="logout">Sign out</button>
+      </div>
+      <button id="me-btn" class="me-btn" type="button">
+        <span class="avatar" id="avatar">?</span>
+        <span class="me-text"><span class="name" id="who-name"></span><span class="meta" id="who-meta"></span></span>
+      </button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <button class="icon menu-btn" id="menu" type="button" aria-label="Chats" data-icon="menu"></button>
+      <button class="icon show-side" id="show-side" type="button" title="Open sidebar" data-icon="sidebar"></button>
+      <div class="name" id="chat-name">New chat</div>
+      <span id="temp-pill" class="pill warn hidden" data-icon="ghost">Temporary chat, not saved</span>
+      <button class="icon" id="export" type="button" title="Export as Markdown" data-icon="download"></button>
+    </div>
+    <div class="messages" id="scroller">
+      <div id="welcome" class="welcome hidden">
+        <h2 id="greeting">Hello</h2>
+        <p class="sub" id="welcome-sub">What would you like to know about IISc?</p>
+        <div id="composer-slot"></div>
+        <div class="suggest" id="suggest"></div>
+      </div>
+      <div class="thread" id="thread"></div>
+    </div>
+    <div class="composer" id="composer">
+      <form id="ask-form" class="ask-box">
+        <label for="question" class="sr-only">Your question</label>
+        <textarea id="question" rows="1" placeholder="Ask a question about IISc" maxlength="8000" enterkeyhint="send"></textarea>
+        <button id="send" class="primary round" type="submit" title="Send" data-icon="send"></button>
+        <button id="stop" class="round hidden" type="button" title="Stop" data-icon="stop"></button>
+      </form>
+      <div class="note">Answers come only from IISc documents and can be wrong. Check the sources before you rely on one.</div>
+    </div>
+  </main>
+</section>
+
+<dialog id="dlg-rename">
+  <form id="rename-form">
+    <h3>Rename chat</h3>
+    <input id="rename-input" maxlength="200" required aria-label="Chat name">
+    <div class="buttons"><button type="button" id="rename-cancel">Cancel</button><button class="primary" type="submit">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-settings">
+  <h3>Settings</h3>
+  <section>
+    <div class="label">Account</div>
+    <div id="account-info" class="small"></div>
+  </section>
+  <section id="pw-section">
+    <form id="pw-form">
+      <div class="label">Change password</div>
+      <div class="field"><input id="pw-old" type="password" autocomplete="current-password" required placeholder="Current password"></div>
+      <div class="field"><input id="pw-new" type="password" autocomplete="new-password" required minlength="8" maxlength="256" placeholder="New password (at least 8 characters)"></div>
+      <div class="error" id="pw-error"></div>
+      <button class="primary">Change password</button>
+    </form>
+  </section>
+  <section>
+    <div class="label">Data</div>
+    <button id="delete-all" class="danger" type="button" data-icon="trash">Delete all chats</button>
+    <form id="del-form" style="margin-top:14px">
+      <div class="field"><input id="del-pass" type="password" autocomplete="current-password" required placeholder="Password, to delete your account"></div>
+      <div class="error" id="del-error"></div>
+      <button class="danger">Delete account and all chats</button>
+    </form>
+  </section>
+  <div class="buttons"><button id="settings-close" type="button">Close</button></div>
+</dialog>
+
+<script src="/static/ui.js"></script>
+<script src="/static/chat.js"></script>
+</body>
+</html>

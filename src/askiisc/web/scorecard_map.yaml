@@ -1,0 +1,249 @@
+# How Locust run summaries (eval/locust, summary.json) become requirement
+# results on the admin scorecard (/admin/results).
+#
+# For each requirement: the workload whose latest run is used, and checks
+# that must all pass. A check reads one value from summary.json:
+#   path:  keys into summary.json, e.g. [by_request, "chat message", p95_ms]
+#   ratio: {num: path, den: [path, ...]}  (num / sum of den; missing if 0)
+#   default: value used when the path is absent (counters that stay 0)
+# and compares it with a target: a constant name from common/targets.py
+# (times `scale`, e.g. 1000 for seconds to ms) or a number. `digits`
+# fixes the decimals shown. A `scale` inside `value` converts the value
+# itself (for example seconds to ms).
+# A run that lacks a value is not used for that requirement; requirements
+# without a usable run fall back to the baseline-v1 numbers.
+# `workload` may name several workloads (the newest usable run of any).
+# A requirement may list several {workload, checks} parts, read from
+# different runs (Locust runs, and the measurements in results/measurements
+# such as the FR-2 recall probe); it passes when every part passes.
+
+FR-2:
+  - workload: access
+    checks:
+      - label: forbidden citations
+        value: {path: [checks, leaks], default: 0}
+        op: "<="
+        target: FR2_MAX_FORBIDDEN_CHUNKS
+  - workload: recall
+    checks:
+      - label: recall@8 of the serving index
+        value: {path: [checks, recall_at_k]}
+        digits: 3
+        op: ">="
+        target: FR2_MIN_RECALL_AT_K
+      - label: forbidden chunks in probes
+        value: {path: [checks, leaks]}
+        op: "<="
+        target: FR2_MAX_FORBIDDEN_CHUNKS
+FR-3:
+  workload: access
+  checks:
+    - label: revoked document last cited after (s)
+      value: {path: [measurements, revocation_last_seen_s, max]}
+      op: "<="
+      target: FR3_REVOCATION_SECONDS
+FR-4:
+  workload: failover
+  checks:
+    - label: access outages injected
+      value: {path: [checks, chaos_restart_access_ok], default: 0}
+      op: ">="
+      target: 1
+    - label: forbidden citations
+      value: {path: [checks, leaks], default: 0}
+      op: "<="
+      target: 0
+FR-5:
+  workload: revisions
+  checks:
+    - label: revisions answered with the new version
+      value:
+        ratio:
+          num: [checks, revisions_current]
+          den: [[checks, revisions_current], [checks, revisions_stale]]
+      op: ">="
+      target: 1.0
+FR-6:
+  workload: overload
+  checks:
+    - label: p95 time to a 429 (ms)
+      value: {path: [by_request, "burst question [429 busy]", p95_ms]}
+      op: "<="
+      target: FR6_REJECT_WITHIN_MS
+FR-7:
+  workload: cache
+  checks:
+    - label: answer cache hit rate
+      value:
+        ratio:
+          num: [checks, cache_hits]
+          den: [[checks, cache_hits], [checks, cache_misses]]
+      op: ">="
+      target: FR7_MIN_CACHE_HIT_RATE
+FR-10:
+  workload: cold-start
+  checks:
+    - label: requests held for a cold start
+      value: {path: [checks, cold_holds], default: 0}
+      op: ">="
+      target: 1
+    - label: failed requests
+      value: {path: [failures]}
+      op: "<="
+      target: 0
+FR-11:
+  workload: scaling-fairness
+  checks:
+    - label: busy department's share of tokens
+      value: {path: [checks, heavy_token_share]}
+      op: "<="
+      target: FR11_MAX_HEAVY_SHARE
+      digits: 3
+    - label: quiet department's share of tokens
+      value: {path: [checks, light_token_share]}
+      op: ">="
+      target: FR11_MIN_LIGHT_SHARE
+      digits: 3
+FR-1:
+  - workload: quality-judge
+    checks:
+      - label: answers whose citations support them (judge)
+        value: {path: [checks, judge_citation_support]}
+        op: ">="
+        target: FR1_MIN_CITED_ANSWER_FRACTION
+        digits: 3
+  - workload: quality-rubric
+    checks:
+      - label: refusals of unanswerable questions
+        value: {path: [checks, abstain_unanswerable]}
+        op: ">="
+        target: FR1_MIN_ABSTAIN_FRACTION
+        digits: 3
+NFR-1:
+  workload: steady
+  checks:
+    - label: p95 answer time (ms)
+      value: {path: [by_request, "chat message", p95_ms]}
+      op: "<="
+      target: NFR1_P95_TOTAL_S
+      scale: 1000
+    - label: p95 first token (ms)
+      value: {path: [by_request, "chat message (first token)", p95_ms]}
+      op: "<="
+      target: NFR1_P95_TTFT_S
+      scale: 1000
+NFR-2:
+  workload: cold-start
+  checks:
+    - label: slowest first token (ms)
+      value: {path: [by_request, "temporary question (first token)", max_ms]}
+      op: "<="
+      target: NFR2_COLD_TTFT_SMALL_S
+      scale: 1000
+NFR-4:
+  - workload: steady
+    checks:
+      - label: error rate
+        value:
+          ratio:
+            num: [failures]
+            den: [[requests]]
+        op: "<="
+        target: NFR4_MAX_ERROR_FRACTION
+  - workload: scaling-steady
+    checks:
+      - label: search p95 under load (s)
+        value: {path: [checks, search_p95_s]}
+        digits: 3
+        op: "<="
+        target: NFR4_SEARCH_P95_S
+NFR-5:
+  workload: soak
+  checks:
+    - label: error rate
+      value:
+        ratio:
+          num: [failures]
+          den: [[requests]]
+      op: "<="
+      target: 0.01
+NFR-8:
+  workload: revisions
+  checks:
+    - label: revisions current within 15 min
+      value:
+        ratio:
+          num: [checks, revisions_current]
+          den: [[checks, revisions_current], [checks, revisions_stale]]
+      op: ">="
+      target: NFR8_MIN_CURRENT_FRACTION
+NFR-9:
+  workload: redteam
+  checks:
+    - label: injection success rate
+      value:
+        ratio:
+          num: [checks, injection_successes]
+          den: [[checks, injections]]
+      op: "<="
+      target: NFR9_MAX_INJECTION_SUCCESS
+    - label: forbidden citations
+      value: {path: [checks, leaks], default: 0}
+      op: "<="
+      target: NFR9_MAX_LEAKS
+NFR-10:
+  - workload: access
+    checks:
+      - label: false allows (cited but forbidden)
+        value: {path: [checks, leaks], default: 0}
+        op: "<="
+        target: NFR10_MAX_FALSE_ALLOWS
+  - workload: [scaling-steady, scaling-diurnal]
+    checks:
+      - label: authorize p99 (ms)
+        value: {path: [checks, authorize_p99_s], scale: 1000}
+        op: "<="
+        target: NFR10_AUTHORIZE_MS
+      - label: filter p99 (ms)
+        value: {path: [checks, filter_p99_s], scale: 1000}
+        op: "<="
+        target: NFR10_FILTER_MS
+NFR-3:
+  workload: throughput
+  checks:
+    - label: output tokens/s at concurrency 64
+      value: {path: [checks, output_tokens_per_s]}
+      op: ">="
+      target: NFR3_TOKENS_PER_S_4B
+NFR-7:
+  workload: quality-judge
+  checks:
+    - label: accuracy (judge)
+      value: {path: [checks, judge_accuracy]}
+      op: ">="
+      target: NFR7_MIN_ACCURACY
+      digits: 3
+    - label: citations support the answer (judge)
+      value: {path: [checks, judge_citation_support]}
+      op: ">="
+      target: NFR7_MIN_CITATION_CORRECTNESS
+      digits: 3
+FR-9:
+  workload: [scaling-spike, scaling-cold-start, scaling-diurnal]
+  checks:
+    - label: second worker ready after (s)
+      value: {path: [checks, scale_out_s]}
+      op: "<="
+      target: FR9_SCALE_OUT_SECONDS
+    - label: most workers at once
+      value: {path: [checks, max_workers]}
+      op: "<="
+      target: MAX_GPU_WORKERS
+NFR-6:
+  workload: scaling-diurnal
+  checks:
+    - label: GPU-hours per 1,000 questions
+      value: {path: [checks, gpu_hours_per_1k]}
+      op: "<="
+      target: NFR6_MAX_GPU_HOURS_PER_1K
+      digits: 3
