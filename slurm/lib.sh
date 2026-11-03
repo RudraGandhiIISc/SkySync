@@ -5,6 +5,11 @@ export ASKIISC_REPO=${ASKIISC_REPO:-${SLURM_SUBMIT_DIR:-$PWD}}
 export ASKIISC_SCRATCH=${ASKIISC_SCRATCH:-/data2/scratch/$USER/askiisc}
 export ASKIISC_DATA=${ASKIISC_DATA:-/data4/$USER/askiisc}
 export HF_HOME=${HF_HOME:-/data4/$USER/huggingface}
+# The live corpus and its index: the cleaned corpus of 2026-10-27 and the
+# index built from it with bge-m3 (1,024 dimensions). The older `corpus`
+# and `state` (BGE-base, 768 dimensions) are kept but no longer served.
+export ASKIISC_CORPUS_DIR=${ASKIISC_CORPUS_DIR:-$ASKIISC_DATA/corpus-v3}
+export ASKIISC_STATE_DIR=${ASKIISC_STATE_DIR:-$ASKIISC_DATA/state-v4}
 export UV_PROJECT_ENVIRONMENT="$ASKIISC_SCRATCH/.venv"
 export UV_CACHE_DIR="$ASKIISC_SCRATCH/uv-cache"
 export SERVE_VENV="$ASKIISC_SCRATCH/serve-venv"

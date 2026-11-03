@@ -9,7 +9,7 @@ COV_100 := src/askiisc/access src/askiisc/gateway/limits.py \
 	src/askiisc/gateway/drr.py src/askiisc/autoscaler/policy.py
 
 .PHONY: fmt fmt-check lint type test test-int test-e2e test-perf test-sec \
-	test-regress audit hooks all
+	test-regress nightly audit hooks all
 
 fmt:
 	$(RUN) ruff format $(SRC)
@@ -48,6 +48,9 @@ test-sec:
 
 test-regress:
 	$(RUN) pytest -q -m regress tests/regression
+
+# Before merging a phase (no cron here): sbatch slurm/gate.sh nightly
+nightly: test-perf test-sec test-regress
 
 audit:
 	@mkdir -p build

@@ -33,7 +33,7 @@ export CUDA_VISIBLE_DEVICES=$GPU
 PORT=$(free_port)
 START=$(date +%s)
 "$SERVE_VENV/bin/vllm" serve "$MODEL" --host 127.0.0.1 --port "$PORT" \
-  --dtype bfloat16 --max-model-len 4096 --enable-prefix-caching \
+  --dtype bfloat16 --max-model-len 8192 --enable-prefix-caching \
   --gpu-memory-utilization "$FRAC" > "$OUT/vllm.log" 2>&1 &
 PID=$!
 trap 'kill $PID 2>/dev/null; wait $PID 2>/dev/null' EXIT

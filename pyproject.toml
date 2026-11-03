@@ -21,6 +21,7 @@ dependencies = [
     "opentelemetry-sdk>=1.26",
     "nvidia-ml-py>=12.560",
     "pyyaml>=6.0",
+    "argon2-cffi>=23.1,<26",
 ]
 
 [dependency-groups]
@@ -69,7 +70,9 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106", "S108", "S311", "D", "PLR2004", "PLC0415"]
-"eval/**" = ["S311"]
+"eval/**" = ["S311", "PLR2004"]
+"deploy/**" = ["S311"]
+"tools/**" = ["S311"]
 
 [tool.mypy]
 python_version = "3.11"
