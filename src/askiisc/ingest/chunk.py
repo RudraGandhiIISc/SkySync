@@ -1,7 +1,10 @@
 """Splits pages into overlapping chunks on sentence boundaries.
 
-Table rows (lines with `|` or tab separators) are never split. A chunk never
-crosses a page, so every chunk keeps its page number for citations.
+Table rows (lines with `|` or tab separators) are not split unless they are
+longer than MAX_CHUNK_CHARS. No chunk is longer than MAX_CHUNK_CHARS, so very
+long unbroken text (tables, URLs, encoded blobs) is cut by characters; the
+index stores text up to 65,535 characters. A chunk never crosses a page, so
+every chunk keeps its page number for citations.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 _WORD = re.compile(r"\S+")
 
 Span = tuple[int, int]
+MAX_CHUNK_CHARS = 8000
 
 
 class TokenCounter(Protocol):
@@ -91,14 +95,24 @@ def _units(text: str, target: int, count: TokenCounter) -> list[Span]:
         if not text[start:end].strip():
             continue
         if _is_table_row(text[start:end]):
-            units.append((start, end))
+            units.extend(_cap((start, end)))
             continue
         for s_start, s_end in _sentences(text, start, end):
             if count.count(text[s_start:s_end]) <= target:
-                units.append((s_start, s_end))
+                units.extend(_cap((s_start, s_end)))
             else:
-                units.extend(_words(text, s_start, s_end))
+                for word in _words(text, s_start, s_end):
+                    units.extend(_cap(word))
     return units
+
+
+def _cap(span: Span) -> list[Span]:
+    """Cuts a span longer than MAX_CHUNK_CHARS into character windows."""
+    start, end = span
+    return [
+        (i, min(i + MAX_CHUNK_CHARS, end))
+        for i in range(start, end, MAX_CHUNK_CHARS)
+    ]
 
 
 def _sentences(text: str, start: int, end: int) -> list[Span]:
@@ -129,7 +143,13 @@ def _pack(
     i = 0
     while i < len(units):
         j, total = i, 0
-        while j < len(units) and (j == i or total + sizes[j] <= target):
+        while j < len(units) and (
+            j == i
+            or (
+                total + sizes[j] <= target
+                and units[j][1] - units[i][0] <= MAX_CHUNK_CHARS
+            )
+        ):
             total += sizes[j]
             j += 1
         chunks.append((units[i][0], units[j - 1][1]))

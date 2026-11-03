@@ -1,5 +1,6 @@
 """FR-5: every version kept, as-of queries right at 60 checkpoints."""
 
+import asyncio
 from collections.abc import Sequence
 
 import pytest
@@ -9,7 +10,7 @@ from askiisc.common.errors import ExtractionError, NotFound
 from askiisc.common.targets import FR5_REVISION_CHECKPOINTS
 from askiisc.common.types import ChunkDraft, DocId
 from askiisc.ingest.objects import InMemoryObjectStore
-from askiisc.ingest.pipeline import Ingestor
+from askiisc.ingest.pipeline import Ingestor, extract_and_chunk
 from askiisc.ingest.reconciler import (
     Reconciler,
     SourceDocument,
@@ -180,3 +181,117 @@ async def test_ingest_rejects_empty_document() -> None:
     doc = SourceDocument(doc_id=DocId("d"), content_type="text/plain")
     with pytest.raises(ExtractionError):
         await ingestor.ingest(doc, b"   ", "fp", 0.0)
+
+
+def test_sqlite_store_keeps_versions_across_reopen(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from askiisc.ingest.versions import SQLiteVersionStore
+
+    path = tmp_path / "state" / "versions.db"
+    store = SQLiteVersionStore(path)
+    doc = DocId("circular")
+    store.publish(
+        doc, [_draft("old")], at=10.0, fingerprint="a", acl=frozenset({"g"})
+    )
+    v2 = store.publish(doc, [_draft("new")], at=20.0, fingerprint="b")
+    with pytest.raises(ValueError):
+        store.publish(doc, [], at=20.0, fingerprint="c")
+    store.close()
+    reopened = SQLiteVersionStore(path)
+    assert reopened.current(doc) == v2
+    first = reopened.as_of(doc, 15.0)
+    assert first is not None and first.valid_to == 20.0
+    assert first.drafts[0].text == "old" and first.acl == {"g"}
+    assert reopened.as_of(doc, 5.0) is None
+    assert [r.version for r in reopened.history(doc)] == [1, 2]
+    assert reopened.documents() == [doc]
+    assert reopened.fingerprints() == {doc: "b"}
+    with pytest.raises(NotFound):
+        reopened.current(DocId("missing"))
+
+
+async def test_seeded_reconciler_skips_ingested_documents(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from askiisc.ingest.versions import SQLiteVersionStore
+
+    clock = FakeClock(start=100.0)
+    source = FakeSource(docs=3, use_etag=False)
+    store = SQLiteVersionStore(tmp_path / "v.db")
+    ingestor = Ingestor(
+        store,
+        InMemoryObjectStore(),
+        FakeEmbedder(dim=32),
+        InMemoryIndex(),
+        commit_delay_s=0.0,
+    )
+    first = Reconciler(source, ingestor.ingest, clock)
+    assert len((await first.run_once()).changed) == 3
+    second = Reconciler(source, ingestor.ingest, clock)  # a later job
+    second.seed(store.fingerprints())
+    source.revision[DocId("doc1")] += 1
+    clock.advance(10.0)
+    report = await second.run_once()
+    assert report.changed == [DocId("doc1")]
+    assert store.current(DocId("doc1")).version == 2
+
+
+async def test_failed_embedding_leaves_document_unrecorded() -> None:
+    """Crash safety: the version is recorded only after the chunks are in
+    the index, so a killed or failed ingest is retried next time."""
+    from askiisc.retrieval.embedder import EmbeddingError
+
+    class Flaky(FakeEmbedder):
+        fail = True
+
+        async def embed(self, texts):  # type: ignore[no-untyped-def]
+            if self.fail:
+                raise EmbeddingError("server died")
+            return await super().embed(texts)
+
+    clock = FakeClock(start=10.0)
+    source = FakeSource(docs=1, use_etag=True)
+    versions, index = InMemoryVersionStore(), InMemoryIndex()
+    embedder = Flaky(dim=32)
+    ingestor = Ingestor(
+        versions, InMemoryObjectStore(), embedder, index, commit_delay_s=0.0
+    )
+    reconciler = Reconciler(source, ingestor.ingest, clock)
+    assert (await reconciler.run_once()).failed == [DocId("doc0")]
+    assert versions.history(DocId("doc0")) == []
+    embedder.fail = False
+    assert (await reconciler.run_once()).changed == [DocId("doc0")]
+    assert versions.current(DocId("doc0")).version == 1
+    assert len(index.all_chunks()) == 1
+
+
+async def test_reconcile_pass_can_stop_between_documents() -> None:
+    clock = FakeClock()
+    source = FakeSource(docs=5, use_etag=True)
+    ingestor, versions, _ = _ingestor()
+    reconciler = Reconciler(source, ingestor.ingest, clock)
+    calls = iter([False, False, True])
+    report = await reconciler.run_once(should_stop=lambda: next(calls))
+    assert report.stopped and len(report.changed) == 2
+    rest = await reconciler.run_once()
+    assert not rest.stopped and len(rest.changed) == 3
+    assert len(versions.documents()) == 5
+
+
+async def test_concurrent_pass_ingests_every_document_once() -> None:
+    clock = FakeClock()
+    source = FakeSource(docs=12, use_etag=True)
+    ingestor, versions, _ = _ingestor()
+    calls: list[str] = []
+
+    async def chunker(
+        data: bytes, content_type: str, template: frozenset[int]
+    ) -> list[ChunkDraft]:
+        calls.append(content_type)
+        await asyncio.sleep(0)  # let other documents start
+        return extract_and_chunk(data, content_type, template)
+
+    ingestor.chunker = chunker
+    reconciler = Reconciler(source, ingestor.ingest, clock, concurrency=4)
+    report = await reconciler.run_once()
+    assert sorted(report.changed) == sorted(versions.documents())
+    assert len(report.changed) == 12 and len(calls) == 12  # noqa: PLR2004
+    again = await reconciler.run_once()
+    assert len(again.unchanged) == 12 and not again.changed  # noqa: PLR2004

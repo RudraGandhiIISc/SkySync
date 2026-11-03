@@ -7,13 +7,15 @@ Milvus.
 
 from __future__ import annotations
 
+import contextlib
 import math
 import re
 import threading
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from askiisc.common.errors import AskIIScError
 from askiisc.common.targets import (
     EMBEDDING_DIM,
     HNSW_EF_CONSTRUCTION,
@@ -26,6 +28,10 @@ FAR_FUTURE = 1.0e15
 """Stored as valid_to for current chunks (Milvus 2.4 has no null floats)."""
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_.:/@#\-]{1,200}$")
+
+
+class IndexStoreError(AskIIScError):
+    """The vector database rejected or failed a request."""
 
 
 @dataclass(frozen=True)
@@ -53,8 +59,13 @@ class ChunkIndex(Protocol):
         allowed_docs: frozenset[DocId],
         at: float,
         top_k: int,
+        text: str = "",
     ) -> list[ScoredChunk]:
-        """Returns the top_k chunks among allowed documents valid at `at`."""
+        """Returns the top_k chunks among allowed documents valid at `at`.
+
+        `text` is the question; indexes with keyword search (DenseIndex)
+        use it, the others search by vector only.
+        """
         ...
 
 
@@ -127,6 +138,7 @@ class InMemoryIndex:
         allowed_docs: frozenset[DocId],
         at: float,
         top_k: int,
+        text: str = "",
     ) -> list[ScoredChunk]:
         """Scans every chunk that passes the filter and ranks by cosine."""
         with self._lock:
@@ -168,6 +180,20 @@ def milvus_filter(allowed_docs: Iterable[DocId], at: float) -> str:
     return (
         f"doc_id in [{quoted}] and valid_from <= {at!r} and valid_to > {at!r}"
     )
+
+
+@contextlib.contextmanager
+def _milvus_errors(action: str) -> Iterator[None]:
+    """Turns pymilvus errors into IndexStoreError.
+
+    One document then fails and the ingest goes on.
+    """
+    from pymilvus.exceptions import MilvusException  # noqa: PLC0415
+
+    try:
+        yield
+    except MilvusException as err:
+        raise IndexStoreError(f"milvus {action} failed: {err}") from err
 
 
 class MilvusIndex:
@@ -236,7 +262,8 @@ class MilvusIndex:
         """
         rows = [self._row(c) for c in chunks]
         if rows:
-            self._client.upsert(self._name, rows)
+            with _milvus_errors("upsert"):
+                self._client.upsert(self._name, rows)
 
     def _row(self, chunk: Chunk) -> dict[str, Any]:
         if chunk.embedding is None:
@@ -257,18 +284,21 @@ class MilvusIndex:
 
     def retire(self, doc_id: DocId, version: Version, at: float) -> int:
         """Sets valid_to on every chunk of a version (rows are kept)."""
-        rows = self._client.query(
-            self._name,
-            filter=(
-                f'doc_id == "{check_id(doc_id)}" and version == {int(version)}'
-            ),
-            output_fields=[*self._OUTPUT, "vector"],
-            consistency_level="Strong",
-        )
+        with _milvus_errors("query"):
+            rows = self._client.query(
+                self._name,
+                filter=(
+                    f'doc_id == "{check_id(doc_id)}" '
+                    f"and version == {int(version)}"
+                ),
+                output_fields=[*self._OUTPUT, "vector"],
+                consistency_level="Strong",
+            )
         for row in rows:
             row["valid_to"] = at
         if rows:
-            self._client.upsert(self._name, [dict(r) for r in rows])
+            with _milvus_errors("upsert"):
+                self._client.upsert(self._name, [dict(r) for r in rows])
         return len(rows)
 
     def search(
@@ -277,22 +307,24 @@ class MilvusIndex:
         allowed_docs: frozenset[DocId],
         at: float,
         top_k: int,
+        text: str = "",
     ) -> list[ScoredChunk]:
         """Runs a filtered HNSW search; the filter is part of the query."""
         if not allowed_docs:
             return []
-        hits = self._client.search(
-            self._name,
-            data=[list(vector)],
-            filter=milvus_filter(allowed_docs, at),
-            limit=top_k,
-            output_fields=list(self._OUTPUT),
-            search_params={
-                "metric_type": "COSINE",
-                "params": {"ef": HNSW_EF_SEARCH},
-            },
-            consistency_level="Strong",
-        )
+        with _milvus_errors("search"):
+            hits = self._client.search(
+                self._name,
+                data=[list(vector)],
+                filter=milvus_filter(allowed_docs, at),
+                limit=top_k,
+                output_fields=list(self._OUTPUT),
+                search_params={
+                    "metric_type": "COSINE",
+                    "params": {"ef": HNSW_EF_SEARCH},
+                },
+                consistency_level="Strong",
+            )
         return [self._scored(hit) for hit in hits[0]]
 
     @staticmethod

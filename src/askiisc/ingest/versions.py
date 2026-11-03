@@ -7,9 +7,12 @@ same instant, so at every moment exactly one version is current.
 
 from __future__ import annotations
 
+import json
+import sqlite3
 import threading
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Protocol
 
 from askiisc.common.errors import NotFound
@@ -87,6 +90,10 @@ class VersionStore(Protocol):
         """Returns the current version of a document."""
         ...
 
+    def retire(self, doc_id: DocId, at: float) -> VersionRecord | None:
+        """Ends the current version at `at` (a newer edition took over)."""
+        ...
+
     def as_of(self, doc_id: DocId, at: float) -> VersionRecord | None:
         """Returns the version that was current at `at`, if any."""
         ...
@@ -148,6 +155,25 @@ class InMemoryVersionStore:
             history.append(record)
             return record
 
+    def retire(self, doc_id: DocId, at: float) -> VersionRecord | None:
+        """Ends the current version at `at`.
+
+        Returns:
+            The retired version, or None if the document is unknown or
+            already retired.
+
+        Raises:
+            ValueError: If `at` is not after the version's start.
+        """
+        with self._lock:
+            history = self._docs.get(doc_id)
+            if not history or history[-1].valid_to is not None:
+                return None
+            if at <= history[-1].valid_from:
+                raise ValueError("a version must end after it starts")
+            history[-1].valid_to = at
+            return history[-1]
+
     def current(self, doc_id: DocId) -> VersionRecord:
         """Returns the current version of a document.
 
@@ -178,3 +204,183 @@ class InMemoryVersionStore:
         """Returns every known document id."""
         with self._lock:
             return sorted(self._docs)
+
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS versions (
+    doc_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    valid_from REAL NOT NULL,
+    valid_to REAL,
+    fingerprint TEXT NOT NULL,
+    acl TEXT NOT NULL,
+    drafts TEXT NOT NULL,
+    PRIMARY KEY (doc_id, version)
+)
+"""
+
+
+class SQLiteVersionStore:
+    """A VersionStore in one SQLite file, so versions outlive a job.
+
+    Publishing (retire the old version, add the new one) is one
+    transaction. Rows are never deleted.
+    """
+
+    def __init__(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Wait for locks rather than fail: SQLite locking over NFS is slow.
+        self._db = sqlite3.connect(
+            str(path), check_same_thread=False, timeout=120.0
+        )
+        self._lock = threading.Lock()
+        with self._lock, self._db:
+            self._db.execute(_SCHEMA)
+
+    def _row(self, row: tuple[object, ...]) -> VersionRecord:
+        doc_id, version, start, end, fingerprint, acl, drafts = row
+        return VersionRecord(
+            doc_id=DocId(str(doc_id)),
+            version=Version(int(str(version))),
+            valid_from=float(str(start)),
+            valid_to=None if end is None else float(str(end)),
+            fingerprint=str(fingerprint),
+            drafts=tuple(ChunkDraft(**d) for d in json.loads(str(drafts))),
+            acl=frozenset(json.loads(str(acl))),
+        )
+
+    def _history(self, doc_id: DocId) -> list[VersionRecord]:
+        rows = self._db.execute(
+            "SELECT * FROM versions WHERE doc_id = ? ORDER BY version",
+            (doc_id,),
+        ).fetchall()
+        return [self._row(r) for r in rows]
+
+    def publish(
+        self,
+        doc_id: DocId,
+        drafts: Sequence[ChunkDraft],
+        at: float,
+        fingerprint: str,
+        acl: frozenset[str] = frozenset(),
+    ) -> VersionRecord:
+        """Adds a version and retires the previous one in one transaction.
+
+        Raises:
+            ValueError: If `at` is not after the current version's start.
+        """
+        with self._lock, self._db:
+            history = self._history(doc_id)
+            if history and at <= history[-1].valid_from:
+                raise ValueError("a new version must start after the old one")
+            if history:
+                self._db.execute(
+                    "UPDATE versions SET valid_to = ? "
+                    "WHERE doc_id = ? AND version = ?",
+                    (at, doc_id, history[-1].version),
+                )
+            version = Version(len(history) + 1)
+            self._db.execute(
+                "INSERT INTO versions VALUES (?, ?, ?, NULL, ?, ?, ?)",
+                (
+                    doc_id,
+                    version,
+                    at,
+                    fingerprint,
+                    json.dumps(sorted(acl)),
+                    json.dumps([d.model_dump() for d in drafts]),
+                ),
+            )
+        return VersionRecord(
+            doc_id, version, at, None, fingerprint, tuple(drafts), acl
+        )
+
+    def retire(self, doc_id: DocId, at: float) -> VersionRecord | None:
+        """Ends the current version at `at` (one transaction).
+
+        Returns:
+            The retired version, or None if the document is unknown or
+            already retired.
+
+        Raises:
+            ValueError: If `at` is not after the version's start.
+        """
+        with self._lock, self._db:
+            history = self._history(doc_id)
+            if not history or history[-1].valid_to is not None:
+                return None
+            last = history[-1]
+            if at <= last.valid_from:
+                raise ValueError("a version must end after it starts")
+            self._db.execute(
+                "UPDATE versions SET valid_to = ? "
+                "WHERE doc_id = ? AND version = ?",
+                (at, doc_id, last.version),
+            )
+        last.valid_to = at
+        return last
+
+    def current(self, doc_id: DocId) -> VersionRecord:
+        """Returns the current version of a document.
+
+        Raises:
+            NotFound: If the document is unknown.
+        """
+        with self._lock:
+            history = self._history(doc_id)
+        if not history:
+            raise NotFound(f"unknown document {doc_id}")
+        return history[-1]
+
+    def as_of(self, doc_id: DocId, at: float) -> VersionRecord | None:
+        """Returns the version that was current at `at`, if any."""
+        with self._lock:
+            history = self._history(doc_id)
+        for record in history:
+            ended = record.valid_to is not None and record.valid_to <= at
+            if record.valid_from <= at and not ended:
+                return record
+        return None
+
+    def history(self, doc_id: DocId) -> list[VersionRecord]:
+        """Returns every version of a document, oldest first."""
+        with self._lock:
+            return self._history(doc_id)
+
+    def documents(self) -> list[DocId]:
+        """Returns every known document id."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT DISTINCT doc_id FROM versions ORDER BY doc_id"
+            ).fetchall()
+        return [DocId(r[0]) for r in rows]
+
+    def fingerprints(self) -> dict[DocId, str]:
+        """Newest fingerprint of every document (to seed the reconciler).
+
+        Retired editions count too: an edition superseded by a newer one is
+        still ingested, and must not be ingested again on the next run.
+        """
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT doc_id, fingerprint FROM versions AS v "
+                "WHERE version = (SELECT max(version) FROM versions "
+                "WHERE doc_id = v.doc_id)"
+            ).fetchall()
+        return {DocId(d): f for d, f in rows}
+
+    def stamp(self) -> str:
+        """A short summary that changes whenever any version is written.
+
+        Snapshots of the index carry it, so a stale snapshot is detected.
+        """
+        with self._lock:
+            row = self._db.execute(
+                "SELECT count(*), max(valid_from), total(valid_to) "
+                "FROM versions"
+            ).fetchone()
+        return ":".join(repr(v) for v in row)
+
+    def close(self) -> None:
+        """Closes the database."""
+        self._db.close()

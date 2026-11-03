@@ -142,3 +142,55 @@ async def test_http_embedder_wraps_http_errors() -> None:
     async with httpx.AsyncClient(transport=transport) as client:
         with pytest.raises(EmbeddingError):
             await HttpEmbedder(client, "http://embed", dim=4).embed(["a"])
+
+
+def test_milvus_errors_become_index_store_errors() -> None:
+    from pymilvus.exceptions import MilvusException
+
+    from askiisc.retrieval.store import IndexStoreError
+
+    class Broken:
+        def has_collection(self, name: str) -> bool:
+            return True
+
+        def load_collection(self, name: str) -> None:
+            return None
+
+        def upsert(self, *a: object, **k: object) -> None:
+            raise MilvusException(6, "value length exceeds max_length")
+
+        query = search = upsert
+
+    index = MilvusIndex(Broken(), dim=16)
+    with pytest.raises(IndexStoreError, match="upsert"):
+        index.upsert([CHUNKS[0]])
+    with pytest.raises(IndexStoreError, match="query"):
+        index.retire(DocId("fees"), Version(1), 1.0)
+    with pytest.raises(IndexStoreError, match="search"):
+        index.search(EMB.embed_one("x"), frozenset({DocId("fees")}), 1.0, 8)
+
+
+async def test_http_embedder_retries_one_transport_error() -> None:
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) % 2:
+            raise httpx.ConnectError("blip")
+        return httpx.Response(200, json=[[0.0] * 4])
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    embedder = HttpEmbedder(client, "http://embed", dim=4)
+    assert await embedder.embed(["x"]) == [(0.0, 0.0, 0.0, 0.0)]
+    assert len(calls) == 2
+
+    def down(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("down")
+
+    broken = HttpEmbedder(
+        httpx.AsyncClient(transport=httpx.MockTransport(down)),
+        "http://e",
+        dim=4,
+    )
+    with pytest.raises(EmbeddingError):
+        await broken.embed(["x"])

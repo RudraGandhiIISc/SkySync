@@ -110,8 +110,21 @@ def test_mock_sample_matches_the_real_layout() -> None:
         if q["expect_doc"]:
             decision = engine.authorize(q["user"], q["expect_doc"], 0.0)
             assert decision.allowed, q["id"]
-    assert not engine.authorize("stu_ece", DocId("cds-thesis"), 0.0).allowed
+    assert not engine.authorize("stu_csa", DocId("cds-thesis"), 0.0).allowed
     assert engine.authorize(
         "fac_csa", DocId("csa-faculty-search-shortlist"), 0.0
     ).allowed
     assert not engine.authorize("fac_csa2", DocId("cds-thesis"), 0.0).allowed
+
+
+def test_repository_documents_are_skipped(tmp_path: Path) -> None:
+    _corpus(tmp_path)
+    paper = {
+        "doc_id": "eprints-1",
+        "path": "public/eprints/general/x.pdf",
+        "url": "https://eprints.iisc.ac.in/1/",
+    }
+    with (tmp_path / "manifest.jsonl").open("a") as f:
+        f.write(json.dumps(paper) + "\n")
+    ids = {d.policy.doc_id for d in load_corpus(tmp_path)}
+    assert "eprints-1" not in ids and "cds-index-1" in ids

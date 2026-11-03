@@ -6,6 +6,7 @@ when it has no ETag, when the SHA-256 of its content differs (A3).
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from collections.abc import Awaitable, Callable, Sequence
@@ -29,12 +30,24 @@ class SourceDocument:
         content_type: MIME type of the content.
         etag: The source's ETag, if it gives one.
         acl: Access groups for this document.
+        valid_from: For an edition of a yearly document, when it took
+            effect (used when the document is first ingested); None means
+            from the moment it is ingested.
+        valid_to: When a newer edition replaced it; None while current.
+        context: Title, edition and site, the first line of every chunk
+            (seen by the embedder, keyword search, reranker and model).
+        template: Hashes of its site's template lines, removed from HTML
+            before chunking (ingest/boilerplate).
     """
 
     doc_id: DocId
     content_type: str
     etag: str | None = None
     acl: frozenset[str] = frozenset()
+    valid_from: float | None = None
+    valid_to: float | None = None
+    context: str = ""
+    template: frozenset[int] = frozenset()
 
 
 class Source(Protocol):
@@ -59,6 +72,7 @@ class ReconcileReport:
     changed: list[DocId] = field(default_factory=list)
     unchanged: list[DocId] = field(default_factory=list)
     failed: list[DocId] = field(default_factory=list)
+    stopped: bool = False
 
 
 def content_fingerprint(data: bytes) -> str:
@@ -75,36 +89,55 @@ class Reconciler:
         ingest: IngestFn,
         clock: Clock,
         interval_s: float = RECONCILE_INTERVAL_S,
+        concurrency: int = 1,
     ) -> None:
         self._source = source
         self._ingest = ingest
         self._clock = clock
         self._interval = interval_s
+        self._concurrency = max(1, concurrency)
         self._seen: dict[DocId, str] = {}
 
     def seed(self, fingerprints: dict[DocId, str]) -> None:
         """Records fingerprints of versions ingested earlier."""
         self._seen.update(fingerprints)
 
-    async def run_once(self) -> ReconcileReport:
+    async def run_once(
+        self, should_stop: Callable[[], bool] = lambda: False
+    ) -> ReconcileReport:
         """Runs one pass over every source document.
 
         A failure on one document is logged and reported; the others still
-        run.
+        run. Up to `concurrency` documents are in progress at once (their
+        extraction runs elsewhere, so a bulk ingest uses every core).
+
+        Args:
+            should_stop: Checked between documents; when it returns True the
+                pass ends early (report.stopped), for example at a job's
+                time limit.
 
         Returns:
             The pass report.
         """
         report = ReconcileReport()
-        for doc in await self._source.list_documents():
-            try:
-                changed = await self._reconcile(doc)
-            except AskIIScError as err:
-                _LOG.warning("reconcile failed for %s: %s", doc.doc_id, err)
-                report.failed.append(doc.doc_id)
-                continue
-            target = report.changed if changed else report.unchanged
-            target.append(doc.doc_id)
+        gate = asyncio.Semaphore(self._concurrency)
+
+        async def one(doc: SourceDocument) -> None:
+            async with gate:
+                if report.stopped or should_stop():
+                    report.stopped = True
+                    return
+                try:
+                    changed = await self._reconcile(doc)
+                except AskIIScError as err:
+                    _LOG.warning("reconcile failed for %s: %s", doc.doc_id, err)
+                    report.failed.append(doc.doc_id)
+                    return
+                target = report.changed if changed else report.unchanged
+                target.append(doc.doc_id)
+
+        docs = await self._source.list_documents()
+        await asyncio.gather(*(one(doc) for doc in docs))
         return report
 
     async def _reconcile(self, doc: SourceDocument) -> bool:
