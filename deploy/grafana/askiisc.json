@@ -1,0 +1,1534 @@
+{
+ "uid": "askiisc-main",
+ "title": "Ask IISc",
+ "tags": [
+  "askiisc"
+ ],
+ "timezone": "browser",
+ "schemaVersion": 39,
+ "refresh": "5s",
+ "time": {
+  "from": "now-30m",
+  "to": "now"
+ },
+ "panels": [
+  {
+   "type": "row",
+   "title": "Overview",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 1
+   },
+   "id": 1,
+   "panels": []
+  },
+  {
+   "type": "stat",
+   "title": "Requests/s (real)",
+   "description": "",
+   "id": 2,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 1,
+    "w": 4,
+    "h": 4
+   },
+   "targets": [
+    {
+     "expr": "(sum(rate(askiisc_requests_by_origin_total{origin=\"real\"}[1m]))) or vector(0)",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps",
+     "noValue": "0",
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "blue"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value",
+    "graphMode": "area"
+   }
+  },
+  {
+   "type": "stat",
+   "title": "Requests/s (Locust)",
+   "description": "",
+   "id": 3,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 4,
+    "y": 1,
+    "w": 4,
+    "h": 4
+   },
+   "targets": [
+    {
+     "expr": "(sum(rate(askiisc_requests_by_origin_total{origin=\"locust\"}[1m]))) or vector(0)",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps",
+     "noValue": "0",
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "orange"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value",
+    "graphMode": "area"
+   }
+  },
+  {
+   "type": "stat",
+   "title": "p95 latency",
+   "description": "NFR-1 target 3.5 s",
+   "id": 4,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 1,
+    "w": 4,
+    "h": 4
+   },
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.95, sum by (le) (rate(askiisc_request_seconds_bucket[1m])))",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "noValue": "-",
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 3.5
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value",
+    "graphMode": "area"
+   }
+  },
+  {
+   "type": "stat",
+   "title": "p95 first token",
+   "description": "NFR-1 target 0.8 s",
+   "id": 5,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 1,
+    "w": 4,
+    "h": 4
+   },
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.95, sum by (le) (rate(askiisc_first_token_seconds_bucket[1m])))",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "noValue": "-",
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 0.8
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value",
+    "graphMode": "area"
+   }
+  },
+  {
+   "type": "stat",
+   "title": "GPU workers ready",
+   "description": "FR-9: never above 2",
+   "id": 6,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 1,
+    "w": 4,
+    "h": 4
+   },
+   "targets": [
+    {
+     "expr": "(sum(askiisc_workers{state=\"ready\"})) or vector(0)",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "noValue": "0",
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "text",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value",
+    "graphMode": "area"
+   }
+  },
+  {
+   "type": "stat",
+   "title": "Live sessions",
+   "description": "",
+   "id": 7,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 20,
+    "y": 1,
+    "w": 4,
+    "h": 4
+   },
+   "targets": [
+    {
+     "expr": "askiisc_sessions",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "noValue": "0",
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "blue"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value",
+    "graphMode": "area"
+   }
+  },
+  {
+   "type": "row",
+   "title": "Traffic and latency",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 5,
+    "w": 24,
+    "h": 1
+   },
+   "id": 8,
+   "panels": []
+  },
+  {
+   "type": "timeseries",
+   "title": "Request rate by origin",
+   "description": "",
+   "id": 9,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 6,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "sum by (origin) (rate(askiisc_requests_by_origin_total[1m])) or label_replace(vector(0), \"origin\", \"real\", \"\", \"\") or label_replace(vector(0), \"origin\", \"locust\", \"\", \"\")",
+     "legendFormat": "{{origin}}",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "normal"
+      },
+      "axisSoftMin": 0,
+      "axisSoftMax": 1
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "Outcomes",
+   "description": "",
+   "id": 10,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 6,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "sum by (decision) (rate(askiisc_requests_by_origin_total[1m])) or label_replace(vector(0), \"decision\", \"answered\", \"\", \"\") or label_replace(vector(0), \"decision\", \"abstained\", \"\", \"\") or label_replace(vector(0), \"decision\", \"rejected\", \"\", \"\") or label_replace(vector(0), \"decision\", \"denied\", \"\", \"\") or label_replace(vector(0), \"decision\", \"error\", \"\", \"\")",
+     "legendFormat": "{{decision}}",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "normal"
+      },
+      "axisSoftMin": 0,
+      "axisSoftMax": 1
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "Rejected with 429 by department",
+   "description": "FR-6",
+   "id": 11,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 6,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "sum by (tenant) (rate(askiisc_shed_total[1m])) or label_replace(vector(0), \"tenant\", \"csa\", \"\", \"\") or label_replace(vector(0), \"tenant\", \"cds\", \"\", \"\")",
+     "legendFormat": "{{tenant}}",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "none"
+      },
+      "axisSoftMin": 0,
+      "axisSoftMax": 1
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "End-to-end latency",
+   "description": "NFR-1",
+   "id": 12,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 14,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.5, sum by (le) (rate(askiisc_request_seconds_bucket[1m])))",
+     "legendFormat": "p50",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    },
+    {
+     "expr": "histogram_quantile(0.95, sum by (le) (rate(askiisc_request_seconds_bucket[1m])))",
+     "legendFormat": "p95",
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    },
+    {
+     "expr": "histogram_quantile(0.99, sum by (le) (rate(askiisc_request_seconds_bucket[1m])))",
+     "legendFormat": "p99",
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "none"
+      }
+     },
+     "noValue": "-"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "p95 latency by origin",
+   "description": "",
+   "id": 13,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 14,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.95, sum by (le, origin) (rate(askiisc_request_seconds_bucket[1m])))",
+     "legendFormat": "{{origin}}",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "none"
+      }
+     },
+     "noValue": "-"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "Time to first token",
+   "description": "",
+   "id": 14,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 14,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.5, sum by (le) (rate(askiisc_first_token_seconds_bucket[1m])))",
+     "legendFormat": "p50",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    },
+    {
+     "expr": "histogram_quantile(0.95, sum by (le) (rate(askiisc_first_token_seconds_bucket[1m])))",
+     "legendFormat": "p95",
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "none"
+      }
+     },
+     "noValue": "-"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "row",
+   "title": "Pipeline stages",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 22,
+    "w": 24,
+    "h": 1
+   },
+   "id": 15,
+   "panels": []
+  },
+  {
+   "type": "timeseries",
+   "title": "Stage p95 (access, embed, search)",
+   "description": "NFR-4: search p95 <= 150 ms",
+   "id": 16,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 23,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.95, sum by (le, stage) (rate(askiisc_stage_seconds_bucket[1m])))",
+     "legendFormat": "{{stage}}",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "none"
+      }
+     },
+     "noValue": "-"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "Access service p95",
+   "description": "NFR-10: authorize <= 10 ms, filter <= 20 ms",
+   "id": 17,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 23,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "histogram_quantile(0.95, sum by (le, call) (rate(askiisc_access_seconds_bucket[1m])))",
+     "legendFormat": "{{call}}",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "none"
+      }
+     },
+     "noValue": "-"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "Access decisions",
+   "description": "",
+   "id": 18,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 23,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "sum by (allowed) (rate(askiisc_access_decisions_total[1m])) or label_replace(vector(0), \"allowed\", \"true\", \"\", \"\") or label_replace(vector(0), \"allowed\", \"false\", \"\", \"\")",
+     "legendFormat": "allowed={{allowed}}",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    },
+    {
+     "expr": "sum by (kind) (rate(askiisc_access_policy_changes_total[5m])) or label_replace(vector(0), \"kind\", \"put\", \"\", \"\") or label_replace(vector(0), \"kind\", \"delete\", \"\", \"\")",
+     "legendFormat": "policy {{kind}}",
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ops",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "none"
+      },
+      "axisSoftMin": 0,
+      "axisSoftMax": 1
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "Answer cache hit rate",
+   "description": "FR-7",
+   "id": 19,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 31,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "(sum(rate(askiisc_cache_hits_total[5m])) / clamp_min(sum(rate(askiisc_requests_by_origin_total{decision=~\"answered|abstained\"}[5m])), 1e-9)) or vector(0)",
+     "legendFormat": "hit rate",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "none"
+      },
+      "axisSoftMin": 0,
+      "axisSoftMax": 1
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "Fair queue depth and cold-start holds",
+   "description": "",
+   "id": 20,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 31,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "askiisc_fair_queue_depth",
+     "legendFormat": "waiting for an LLM slot",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    },
+    {
+     "expr": "(sum(rate(askiisc_cold_start_holds_total[1m]))) or vector(0)",
+     "legendFormat": "cold holds/s",
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "none"
+      },
+      "axisSoftMin": 0,
+      "axisSoftMax": 1
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "Output tokens by department",
+   "description": "FR-11: share per tenant",
+   "id": 21,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 31,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "sum by (tenant) (rate(askiisc_output_tokens_total[1m])) or label_replace(vector(0), \"tenant\", \"csa\", \"\", \"\") or label_replace(vector(0), \"tenant\", \"cds\", \"\", \"\")",
+     "legendFormat": "{{tenant}}",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "normal"
+      },
+      "axisSoftMin": 0,
+      "axisSoftMax": 1
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "row",
+   "title": "GPU workers (vLLM)",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 39,
+    "w": 24,
+    "h": 1
+   },
+   "id": 22,
+   "panels": []
+  },
+  {
+   "type": "timeseries",
+   "title": "Workers by state",
+   "description": "FR-9, FR-10",
+   "id": 23,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 40,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "askiisc_workers",
+     "legendFormat": "{{state}}",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "normal"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "GPU utilisation",
+   "description": "",
+   "id": 24,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 40,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "askiisc_gpu_utilization_ratio",
+     "legendFormat": "GPU {{gpu}}",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "none"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "GPU memory used",
+   "description": "",
+   "id": 25,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 40,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "askiisc_gpu_memory_used_bytes",
+     "legendFormat": "GPU {{gpu}}",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "none"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "vLLM tokens per second",
+   "description": "NFR-3: >= 600 output tokens/s per worker",
+   "id": 26,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 48,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "(sum(rate(vllm:generation_tokens_total[1m]))) or vector(0)",
+     "legendFormat": "output",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    },
+    {
+     "expr": "(sum(rate(vllm:prompt_tokens_total[1m]))) or vector(0)",
+     "legendFormat": "prompt",
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "none"
+      },
+      "axisSoftMin": 0,
+      "axisSoftMax": 1
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "vLLM requests",
+   "description": "",
+   "id": 27,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 48,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "sum by (worker) (vllm:num_requests_running)",
+     "legendFormat": "running {{worker}}",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    },
+    {
+     "expr": "sum by (worker) (vllm:num_requests_waiting)",
+     "legendFormat": "waiting {{worker}}",
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "none"
+      }
+     },
+     "noValue": "-"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "vLLM KV cache and prefix cache",
+   "description": "FR-7",
+   "id": 28,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 48,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "max by (worker) (vllm:kv_cache_usage_perc or vllm:gpu_cache_usage_perc)",
+     "legendFormat": "KV used {{worker}}",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    },
+    {
+     "expr": "(sum(rate(vllm:prefix_cache_hits_total[5m])) / clamp_min(sum(rate(vllm:prefix_cache_queries_total[5m])), 1e-9)) or vector(0)",
+     "legendFormat": "prefix hit rate",
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "none"
+      },
+      "axisSoftMin": 0,
+      "axisSoftMax": 1
+     },
+     "noValue": "-"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "row",
+   "title": "Accounts and web app",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 56,
+    "w": 24,
+    "h": 1
+   },
+   "id": 29,
+   "panels": []
+  },
+  {
+   "type": "timeseries",
+   "title": "Logins",
+   "description": "",
+   "id": 30,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 57,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "sum by (result) (rate(askiisc_logins_total[5m])) or label_replace(vector(0), \"result\", \"ok\", \"\", \"\") or label_replace(vector(0), \"result\", \"refused\", \"\", \"\") or label_replace(vector(0), \"result\", \"throttled\", \"\", \"\")",
+     "legendFormat": "{{result}}",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ops",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "none"
+      },
+      "axisSoftMin": 0,
+      "axisSoftMax": 1
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "Accounts",
+   "description": "",
+   "id": 31,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 57,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "askiisc_accounts",
+     "legendFormat": "{{status}} {{kind}}",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "none"
+      }
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "type": "timeseries",
+   "title": "Chat activity",
+   "description": "",
+   "id": 32,
+   "datasource": {
+    "type": "prometheus",
+    "uid": "askiisc-prom"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 57,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "expr": "sum by (event) (rate(askiisc_chat_events_total[5m])) or label_replace(vector(0), \"event\", \"message\", \"\", \"\") or label_replace(vector(0), \"event\", \"temporary_message\", \"\", \"\") or label_replace(vector(0), \"event\", \"created\", \"\", \"\") or label_replace(vector(0), \"event\", \"renamed\", \"\", \"\") or label_replace(vector(0), \"event\", \"deleted\", \"\", \"\")",
+     "legendFormat": "{{event}}",
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    },
+    {
+     "expr": "sum by (rating) (rate(askiisc_answer_ratings_total[5m])) or label_replace(vector(0), \"rating\", \"1\", \"\", \"\") or label_replace(vector(0), \"rating\", \"-1\", \"\", \"\")",
+     "legendFormat": "rating {{rating}}",
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "askiisc-prom"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ops",
+     "custom": {
+      "lineWidth": 2,
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "none"
+      },
+      "axisSoftMin": 0,
+      "axisSoftMax": 1
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  }
+ ],
+ "editable": true,
+ "version": 1
+}

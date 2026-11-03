@@ -30,6 +30,22 @@ LATENCY_BUCKETS = (
 )
 
 
+STAGE_BUCKETS = (
+    0.001,
+    0.002,
+    0.005,
+    0.01,
+    0.02,
+    0.05,
+    0.1,
+    0.15,
+    0.25,
+    0.5,
+    1.0,
+    2.5,
+)
+
+
 class GatewayMetrics:
     """Gateway counters, gauges and histograms."""
 
@@ -79,6 +95,64 @@ class GatewayMetrics:
         self.cold_holds = Counter(
             "askiisc_cold_start_holds",
             "Requests held for a cold start.",
+            registry=r,
+        )
+        self._origin(r)
+        self._system(r)
+
+    def _origin(self, r: CollectorRegistry) -> None:
+        """Real users vs the load generator (origin = real | locust)."""
+        self.by_origin = Counter(
+            "askiisc_requests_by_origin",
+            "Requests by origin, entry point and outcome.",
+            ["origin", "source", "decision"],
+            registry=r,
+        )
+        self.origin_latency = Histogram(
+            "askiisc_request_seconds",
+            "End-to-end latency by origin.",
+            ["origin"],
+            buckets=LATENCY_BUCKETS,
+            registry=r,
+        )
+        self.origin_ttft = Histogram(
+            "askiisc_first_token_seconds",
+            "Time to first token by origin.",
+            ["origin"],
+            buckets=LATENCY_BUCKETS,
+            registry=r,
+        )
+        self.stage = Histogram(
+            "askiisc_stage_seconds",
+            "Time per pipeline stage (access, embed, search).",
+            ["stage"],
+            buckets=STAGE_BUCKETS,
+            registry=r,
+        )
+
+    def _system(self, r: CollectorRegistry) -> None:
+        """GPU workers and GPUs, set by the serving loop."""
+        self.workers = Gauge(
+            "askiisc_workers",
+            "GPU workers by state.",
+            ["state"],
+            registry=r,
+        )
+        self.worker_failures = Gauge(
+            "askiisc_worker_failures",
+            "GPU workers that died or failed to start since the job began.",
+            registry=r,
+        )
+        self.gpu_utilization = Gauge(
+            "askiisc_gpu_utilization_ratio",
+            "GPU utilisation (0-1), NVML.",
+            ["gpu"],
+            registry=r,
+        )
+        self.gpu_memory = Gauge(
+            "askiisc_gpu_memory_used_bytes",
+            "GPU memory in use, NVML.",
+            ["gpu"],
             registry=r,
         )
 

@@ -1,0 +1,183 @@
+{
+ "uid": "askiisc-requests",
+ "title": "Ask IISc requests",
+ "tags": [
+  "askiisc",
+  "logs"
+ ],
+ "timezone": "browser",
+ "schemaVersion": 39,
+ "refresh": "10s",
+ "time": {
+  "from": "now-1h",
+  "to": "now"
+ },
+ "editable": true,
+ "version": 1,
+ "templating": {
+  "list": [
+   {
+    "type": "textbox",
+    "name": "request_id",
+    "label": "request id",
+    "query": "",
+    "current": {
+     "text": "",
+     "value": ""
+    }
+   },
+   {
+    "type": "textbox",
+    "name": "user_id",
+    "label": "user id",
+    "query": "",
+    "current": {
+     "text": "",
+     "value": ""
+    }
+   }
+  ]
+ },
+ "panels": [
+  {
+   "type": "timeseries",
+   "title": "Requests per minute by outcome",
+   "datasource": {
+    "type": "loki",
+    "uid": "askiisc-loki"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum by (decision) (count_over_time({job=\"requests\"} | json | user_id=~\"$user_id.*\" [1m]))",
+     "legendFormat": "{{decision}}",
+     "datasource": {
+      "type": "loki",
+      "uid": "askiisc-loki"
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "stacking": {
+       "mode": "normal"
+      },
+      "fillOpacity": 15
+     }
+    },
+    "overrides": []
+   },
+   "id": 1
+  },
+  {
+   "type": "logs",
+   "title": "Requests (one JSON line each; no question or answer text)",
+   "description": "Filter with the request id and user id boxes above. Click a line for its fields.",
+   "datasource": {
+    "type": "loki",
+    "uid": "askiisc-loki"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 7,
+    "w": 24,
+    "h": 10
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "{job=\"requests\"} | json | request_id=~\"$request_id.*\" | user_id=~\"$user_id.*\"",
+     "datasource": {
+      "type": "loki",
+      "uid": "askiisc-loki"
+     },
+     "queryType": "range"
+    }
+   ],
+   "options": {
+    "showTime": true,
+    "wrapLogMessage": true,
+    "sortOrder": "Descending",
+    "enableLogDetails": true,
+    "prettifyLogMessage": false
+   },
+   "id": 2
+  },
+  {
+   "type": "logs",
+   "title": "Every service's log lines for this request",
+   "description": "The gateway line, the access-service and embedding calls, and vLLM's 'Received request chatcmpl-<id>' line share the request id.",
+   "datasource": {
+    "type": "loki",
+    "uid": "askiisc-loki"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 17,
+    "w": 24,
+    "h": 10
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "{job=~\"requests|access|embed|vllm\"} |= \"$request_id\"",
+     "datasource": {
+      "type": "loki",
+      "uid": "askiisc-loki"
+     },
+     "queryType": "range"
+    }
+   ],
+   "options": {
+    "showTime": true,
+    "wrapLogMessage": true,
+    "sortOrder": "Descending",
+    "enableLogDetails": true,
+    "prettifyLogMessage": false
+   },
+   "id": 3
+  },
+  {
+   "type": "logs",
+   "title": "Errors in service logs",
+   "description": "",
+   "datasource": {
+    "type": "loki",
+    "uid": "askiisc-loki"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 27,
+    "w": 24,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "{job=~\"access|embed|vllm|locust\"} |~ \"(?i)error|exception|traceback\"",
+     "datasource": {
+      "type": "loki",
+      "uid": "askiisc-loki"
+     },
+     "queryType": "range"
+    }
+   ],
+   "options": {
+    "showTime": true,
+    "wrapLogMessage": true,
+    "sortOrder": "Descending",
+    "enableLogDetails": true,
+    "prettifyLogMessage": false
+   },
+   "id": 4
+  }
+ ]
+}

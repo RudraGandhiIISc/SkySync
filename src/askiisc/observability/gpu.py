@@ -17,17 +17,22 @@ from askiisc.common.clock import Clock
 _MIB = 1024 * 1024
 
 
-def read_gpus(nvml: Any) -> list[GpuInfo]:
-    """Reads utilisation and memory of every card.
+def read_gpus(
+    nvml: Any, allowed: frozenset[int] | None = None
+) -> list[GpuInfo]:
+    """Reads utilisation and memory of every card (or the allowed ones).
 
     Args:
         nvml: An initialised pynvml-compatible module.
+        allowed: Card indexes this job may use; None means all.
 
     Returns:
         One entry per card.
     """
     gpus = []
     for index in range(nvml.nvmlDeviceGetCount()):
+        if allowed is not None and index not in allowed:
+            continue
         handle = nvml.nvmlDeviceGetHandleByIndex(index)
         util = nvml.nvmlDeviceGetUtilizationRates(handle).gpu
         memory = nvml.nvmlDeviceGetMemoryInfo(handle)

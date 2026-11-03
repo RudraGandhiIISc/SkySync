@@ -1,0 +1,163 @@
+# Grafana alert rules, provisioned by deploy/serve.py (copied into the
+# serving job's provisioning/alerting folder). Each rule queries Prometheus
+# (data source uid askiisc-prom) and fires when the threshold expression C
+# holds for `for`. Notifications go to the contact point only when
+# private/app/alerting.json enables one; otherwise alerts show in Grafana
+# and on the admin overview only.
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: ask-iisc
+    folder: Ask IISc
+    interval: 1m
+    rules:
+      - uid: askiisc-latency-p95
+        title: p95 latency above 3.5 s
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels: {severity: warning, requirement: NFR-1}
+        annotations:
+          summary: End-to-end p95 latency has been above 3.5 s for 5 minutes.
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: askiisc-prom
+            model:
+              refId: A
+              instant: true
+              expr: histogram_quantile(0.95, sum by (le) (rate(askiisc_request_seconds_bucket[5m])))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [3.5]}
+      - uid: askiisc-error-rate
+        title: Error rate above 1%
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels: {severity: critical, requirement: NFR-4}
+        annotations:
+          summary: More than 1% of requests ended in an error over 5 minutes.
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: askiisc-prom
+            model:
+              refId: A
+              instant: true
+              expr: sum(rate(askiisc_requests_by_origin_total{decision="error"}[5m])) / clamp_min(sum(rate(askiisc_requests_by_origin_total[5m])), 1e-9)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0.01]}
+      - uid: askiisc-locust-leaks
+        title: Locust saw a forbidden citation
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels: {severity: critical, requirement: FR-2}
+        annotations:
+          summary: A load-test answer cited a document its user may not read.
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: askiisc-prom
+            model:
+              refId: A
+              instant: true
+              expr: max(locust_leaks_total)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+      - uid: askiisc-worker-failure
+        title: GPU worker crashed or failed to start
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels: {severity: warning, requirement: NFR-5}
+        annotations:
+          summary: A vLLM worker died or could not start in the last 10 minutes; the autoscaler replaces it.
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: askiisc-prom
+            model:
+              refId: A
+              instant: true
+              expr: max(delta(askiisc_worker_failures[10m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+      - uid: askiisc-access-p95
+        title: Access service p95 above 20 ms
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels: {severity: warning, requirement: NFR-10}
+        annotations:
+          summary: The access service took more than 20 ms (p95) to answer filter calls for 5 minutes.
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: askiisc-prom
+            model:
+              refId: A
+              instant: true
+              expr: histogram_quantile(0.95, sum by (le) (rate(askiisc_access_seconds_bucket{call="filter"}[5m])))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0.02]}
+      - uid: askiisc-target-down
+        title: A monitored service is down
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels: {severity: critical, requirement: NFR-5}
+        annotations:
+          summary: Prometheus cannot scrape a service (gateway, access, a vLLM worker or Locust).
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: askiisc-prom
+            model:
+              refId: A
+              instant: true
+              expr: count(up == 0) or vector(0)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
