@@ -292,3 +292,30 @@ async def test_fake_pool_refuses_third_worker() -> None:
     with pytest.raises(PoolError):
         await pool.request_worker()
     await pool.release_worker("missing")
+
+
+async def test_serving_controller_never_releases_a_streaming_worker() -> None:
+    # Regression (FR-10): the serving job built its controller without the
+    # gateway's load, so the policy saw no work in flight and scaled in a
+    # worker mid-stream; the request hung 30 s and failed (job 1816).
+    from deploy.stack import make_controller
+
+    from askiisc.common.types import TenantId
+    from askiisc.gateway.drr import FairDispatcher
+
+    clock = SimClock()
+    pool = FakeWorkerPool(clock, 0.0, 0.0)  # type: ignore[arg-type]
+    dispatcher = FairDispatcher(capacity=4, quantum=10)
+    controller = make_controller(pool, CONFIG, clock, dispatcher, 2)  # type: ignore[arg-type]
+    starts = [asyncio.create_task(pool.request_worker()) for _ in range(2)]
+    await clock.run_until(1.0)
+    await asyncio.gather(*starts)
+    await dispatcher.acquire(TenantId("a"), 1)  # one answer streaming
+    assert dispatcher.in_use == 1
+    await clock.run_until(CONFIG.idle_timeout_s + 10)  # idle by arrivals
+    assert isinstance(await controller.step(), Hold)
+    assert len(pool.list_workers()) == 2
+    dispatcher.release()  # the answer ends
+    assert dispatcher.in_use == 0
+    assert isinstance(await controller.step(), ScaleIn)
+    assert pool.list_workers() == []

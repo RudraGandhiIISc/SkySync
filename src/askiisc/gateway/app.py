@@ -16,7 +16,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Literal, Protocol
 
 from fastapi import FastAPI, Header, Response
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -32,7 +32,12 @@ from askiisc.common.errors import (
     ConfigError,
     RateLimited,
 )
-from askiisc.common.targets import LLM_MAX_TOKENS, MAX_QUESTION_TOKENS
+from askiisc.common.requestid import REQUEST_ID
+from askiisc.common.targets import (
+    CHAT_HISTORY_CHARS,
+    LLM_MAX_TOKENS,
+    MAX_QUESTION_TOKENS,
+)
 from askiisc.common.types import Answer, TenantId, UserId
 from askiisc.gateway.audit import (
     AuditRecord,
@@ -86,6 +91,52 @@ class AlwaysReady:
         """Does nothing."""
 
 
+@dataclass(frozen=True)
+class Origin:
+    """Where a request came from; set by the server, never the client.
+
+    Attributes:
+        source: "api" (POST /v1/ask), "chat" or "temporary" (the web app).
+        synthetic: True for the load generator's accounts.
+    """
+
+    source: str = "api"
+    synthetic: bool = False
+
+    @property
+    def label(self) -> str:
+        """The metrics label: "locust" or "real"."""
+        return "locust" if self.synthetic else "real"
+
+
+@dataclass(frozen=True)
+class RequestEvent:
+    """One finished request, for the admin request log.
+
+    It names the user but never holds question or answer text.
+    """
+
+    request_id: str
+    time: float
+    user_id: str
+    tenant: str
+    source: str
+    synthetic: bool
+    decision: str
+    status: int
+    latency_ms: float
+    ttft_ms: float | None
+    prompt_tokens: int
+    completion_tokens: int
+    cache_hit: bool
+    stale: bool
+    citations: int
+    documents: tuple[str, ...]
+    model: str
+    policy_version: int
+    cold_hold: bool
+
+
 @dataclass
 class GatewayDeps:
     """Everything the gateway is built from (all injected)."""
@@ -105,6 +156,20 @@ class GatewayDeps:
     max_cold_hold_s: float = 150.0
     debug_retrieval: bool = False
     new_id: Callable[[], str] = lambda: uuid.uuid4().hex
+    on_request: Callable[[RequestEvent], None] | None = None
+
+
+# Request limits on history; the prompt uses less (llm/prompts.py).
+TURN_MAX_CHARS = 4 * CHAT_HISTORY_CHARS
+HISTORY_MAX_TURNS = 20
+
+
+class Turn(BaseModel):
+    """One earlier message of a chat."""
+
+    model_config = ConfigDict(extra="forbid")
+    role: Literal["user", "assistant"]
+    content: str = Field(max_length=TURN_MAX_CHARS)
 
 
 class AskRequest(BaseModel):
@@ -113,6 +178,9 @@ class AskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question: str = Field(min_length=1, max_length=8192)
     as_of: float | None = None
+    history: list[Turn] = Field(
+        default_factory=list, max_length=HISTORY_MAX_TURNS
+    )
 
 
 def sse(event: str, payload: object) -> bytes:
@@ -146,25 +214,54 @@ def create_app(deps: GatewayDeps) -> FastAPI:
     async def ask(
         body: AskRequest, authorization: str | None = Header(default=None)
     ) -> Response:
-        return await _ask(deps, body, authorization)
+        return await _ask(deps, body, authorization, Origin())
 
     return app
 
 
+async def ask(
+    deps: GatewayDeps,
+    body: AskRequest,
+    header: str | None,
+    origin: Origin | None = None,
+) -> Response:
+    """Answers one question: a JSON rejection or an SSE stream.
+
+    Args:
+        deps: The gateway's dependencies.
+        body: The request.
+        header: The Authorization header value.
+        origin: Set by the web app for its own requests; API calls are
+            "api" and never synthetic.
+
+    Returns:
+        An HTTP response.
+    """
+    return await _ask(deps, body, header, origin or Origin())
+
+
 async def _ask(
-    deps: GatewayDeps, body: AskRequest, header: str | None
+    deps: GatewayDeps, body: AskRequest, header: str | None, origin: Origin
 ) -> Response:
     started = time.perf_counter()
+    # Every call this request makes (access, embed, vLLM) carries this id.
+    REQUEST_ID.set(deps.new_id())
+
+    def reject(caller: Caller, decision: Decision, status: int) -> None:
+        _Session(deps, caller, body, None, None, started, origin).audit(
+            decision, status
+        )
+
     try:
         caller = deps.auth.authenticate(header)
     except AuthError:
-        _Session(deps, ANONYMOUS, body, None, None, started).audit("rejected")
+        reject(ANONYMOUS, "rejected", 401)
         return _error(401, "invalid or missing token")
     except AccessDenied:
-        _Session(deps, ANONYMOUS, body, None, None, started).audit("denied")
+        reject(ANONYMOUS, "denied", 403)
         return _error(403, "not in directory")
     if len(body.question.split()) > MAX_QUESTION_TOKENS:
-        _Session(deps, caller, body, None, None, started).audit("rejected")
+        reject(caller, "rejected", 413)
         return _error(413, "question too long")
     deps.workers.note_request()
     try:
@@ -172,16 +269,16 @@ async def _ask(
     except RateLimited as err:
         deps.metrics.shed.labels(caller.tenant).inc()
         deps.metrics.requests.labels(caller.tenant, "rejected").inc()
-        _Session(deps, caller, body, None, None, started).audit("rejected")
+        reject(caller, "rejected", 429)
         retry = str(max(1, math.ceil(err.retry_after_s)))
         return _error(429, "busy, retry later", **{"Retry-After": retry})
     try:
         allowed = await deps.access.filter(caller.token, body.as_of)
     except AccessDenied:
         deps.admission.release(ticket, completed=False)
-        _Session(deps, caller, body, None, None, started).audit("denied")
+        reject(caller, "denied", 403)
         return _error(403, "access check failed")
-    session = _Session(deps, caller, body, ticket, allowed, started)
+    session = _Session(deps, caller, body, ticket, allowed, started, origin)
     return StreamingResponse(session.events(), media_type="text/event-stream")
 
 
@@ -203,14 +300,18 @@ class _Session:
         ticket: Ticket | None,
         allowed: AccessFilter | None,
         started: float,
+        origin: Origin,
     ) -> None:
         self.deps = deps
+        self.origin = origin
+        self.ttft: float | None = None
+        self.cold_hold = False
         self.caller = caller
         self.body = body
         self.ticket = ticket
         self.allowed = allowed
         self.started = started
-        self.request_id = deps.new_id()
+        self.request_id = REQUEST_ID.get() or deps.new_id()
         self.prepared: Prepared | None = None
         self.answer: Answer | None = None
         self.cache_hit = False
@@ -218,7 +319,11 @@ class _Session:
 
     @property
     def key(self) -> str | None:
-        if self.allowed is None or self.body.as_of is not None:
+        if (
+            self.allowed is None
+            or self.body.as_of is not None
+            or self.body.history
+        ):
             return None
         return cache_key(
             self.allowed.doc_ids,
@@ -257,7 +362,10 @@ class _Session:
             return
         rag = self.deps.rag
         self.prepared = await rag.prepare(
-            self.caller.token, self.body.question, self.body.as_of
+            self.caller.token,
+            self.body.question,
+            self.body.as_of,
+            [t.model_dump() for t in self.body.history],
         )
         if self.prepared.needs_llm:
             async for event in self._hold_for_worker():
@@ -300,6 +408,7 @@ class _Session:
         if workers.ready():
             return
         self.deps.metrics.cold_holds.inc()
+        self.cold_hold = True
         yield sse(
             "warming",
             {
@@ -324,8 +433,10 @@ class _Session:
                 self.prepared, self.caller.tenant
             ):
                 if first:
-                    metrics.ttft.labels(self.caller.tenant).observe(
-                        time.perf_counter() - self.started
+                    self.ttft = time.perf_counter() - self.started
+                    metrics.ttft.labels(self.caller.tenant).observe(self.ttft)
+                    metrics.origin_ttft.labels(self.origin.label).observe(
+                        self.ttft
                     )
                     first = False
                 yield sse("token", {"text": piece})
@@ -357,15 +468,15 @@ class _Session:
     def _finish_metrics(self, decision: Decision) -> None:
         tenant, metrics = self.caller.tenant, self.deps.metrics
         metrics.requests.labels(tenant, decision).inc()
-        metrics.latency.labels(tenant).observe(
-            time.perf_counter() - self.started
-        )
+        seconds = time.perf_counter() - self.started
+        metrics.latency.labels(tenant).observe(seconds)
+        metrics.origin_latency.labels(self.origin.label).observe(seconds)
         if self.prepared is not None:
             usage = self.deps.rag.usage(self.prepared)
             metrics.tokens.labels(tenant).inc(usage.completion_tokens)
 
-    def audit(self, decision: Decision) -> None:
-        """Writes this request's audit record."""
+    def audit(self, decision: Decision, status: int | None = None) -> None:
+        """Writes this request's audit record and request event."""
         deps, salt = self.deps, self.deps.audit_salt
         docs: list[DocVersion] = []
         chunk_ids: tuple[str, ...] = ()
@@ -389,6 +500,36 @@ class _Session:
             ]
             chunk_ids = self._cached.chunk_ids
         now = deps.clock.now()
+        latency_ms = (time.perf_counter() - self.started) * 1e3
+        deps.metrics.by_origin.labels(
+            self.origin.label, self.origin.source, decision
+        ).inc()
+        if deps.on_request is not None:
+            deps.on_request(
+                RequestEvent(
+                    request_id=self.request_id,
+                    time=now,
+                    user_id=self.caller.user_id,
+                    tenant=self.caller.tenant,
+                    source=self.origin.source,
+                    synthetic=self.origin.synthetic,
+                    decision=decision,
+                    status=status or (500 if decision == "error" else 200),
+                    latency_ms=latency_ms,
+                    ttft_ms=None if self.ttft is None else self.ttft * 1e3,
+                    prompt_tokens=prompt,
+                    completion_tokens=completion,
+                    cache_hit=self.cache_hit,
+                    stale=self._stale(),
+                    citations=len(self.answer.citations) if self.answer else 0,
+                    documents=tuple(f"{d.doc_id}@v{d.version}" for d in docs),
+                    model=deps.rag.model,
+                    policy_version=self.allowed.policy_version
+                    if self.allowed
+                    else 0,
+                    cold_hold=self.cold_hold,
+                )
+            )
         deps.audit.write(
             AuditRecord(
                 request_id=self.request_id,
@@ -406,11 +547,13 @@ class _Session:
                 decision=decision,
                 prompt_tokens=prompt,
                 completion_tokens=completion,
-                latency_ms=(time.perf_counter() - self.started) * 1e3,
+                latency_ms=latency_ms,
                 cache_hit=self.cache_hit,
-                stale=bool(
-                    self.answer
-                    and any(c.is_stale for c in self.answer.citations)
-                ),
+                stale=self._stale(),
             )
+        )
+
+    def _stale(self) -> bool:
+        return bool(
+            self.answer and any(c.is_stale for c in self.answer.citations)
         )

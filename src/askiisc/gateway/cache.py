@@ -93,6 +93,17 @@ class InMemoryAnswerCache:
         self._items[key] = (self._clock.now(), value)
 
 
+class NullAnswerCache:
+    """Caches nothing (load tests that must measure the model)."""
+
+    async def get(self, key: str) -> CachedAnswer | None:
+        """Always a miss."""
+        return None
+
+    async def set(self, key: str, value: CachedAnswer) -> None:
+        """Stores nothing."""
+
+
 class RedisAnswerCache:
     """Answers in Redis with a TTL. A Redis failure is a cache miss."""
 

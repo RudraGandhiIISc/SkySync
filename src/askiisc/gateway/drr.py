@@ -88,6 +88,11 @@ class FairDispatcher:
         """Requests waiting for a slot."""
         return len(self._drr)
 
+    @property
+    def in_use(self) -> int:
+        """Slots held by requests being generated."""
+        return self._capacity - self._free
+
     async def acquire(self, tenant: TenantId, cost: float) -> None:
         """Waits for a slot.
 

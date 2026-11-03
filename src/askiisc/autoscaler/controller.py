@@ -147,7 +147,12 @@ class Controller:
         return obs
 
     async def step(self) -> Decision:
-        """Observes, decides and acts once."""
+        """Reaps dead workers, then observes, decides and acts once."""
+        reap = getattr(self._pool, "reap", None)
+        if reap is not None:
+            for worker_id in await reap():
+                self.failures += 1
+                _LOG.warning("worker %s died; removed", worker_id)
         obs = self.observe()
         if self._closed:
             return Hold()

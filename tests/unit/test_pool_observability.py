@@ -277,3 +277,29 @@ async def test_gpu_sampler_reads_only_pinned_cards() -> None:
     assert {s.index for s in sampler.samples} == {1}
     assert sampler.samples[0].used_mib == 143_771 - 90_000
     assert clock.now() == 3.0
+
+
+async def test_dead_workers_are_reaped_and_kill_signals_the_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import signal
+
+    from askiisc.autoscaler.controller import Controller
+    from askiisc.autoscaler.policy import ScalingConfig
+
+    signals: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        "os.killpg", lambda pid, sig: signals.append((pid, sig))
+    )
+    pool, _, _ = _pool([200])
+    worker = await pool.request_worker()
+    pool.kill(worker.worker_id)
+    assert signals[-1][1] == signal.SIGKILL
+    with pytest.raises(PoolError):
+        pool.kill("nope")
+    assert await pool.reap() == []  # still running
+    process = pool._workers[worker.worker_id][1]  # noqa: SLF001
+    process.returncode = -9  # type: ignore[attr-defined]
+    controller = Controller(pool, ScalingConfig(max_workers=2), FakeClock())
+    await controller.step()
+    assert pool.list_workers() == [] and controller.failures == 1

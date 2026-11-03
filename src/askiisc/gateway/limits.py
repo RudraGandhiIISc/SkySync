@@ -1,9 +1,17 @@
 """Per-tenant load limits and admission control (FR-6).
 
 A request is admitted only if its tenant's token bucket has a token, its
-tenant queue is below the bound, and its estimated wait is under the
-maximum. Otherwise RateLimited is raised at once, with a Retry-After, and
+tenant queue is below the bound, its estimated wait is under the maximum
+and, with a capacity (`max_in_flight`), the tenant is within its fair share
+of it. Otherwise RateLimited is raised at once, with a Retry-After, and
 nothing waits on the LLM.
+
+Fair share (FR-6, FR-11): every tenant with requests in flight may hold
+max_in_flight / (number of such tenants). A tenant below its share is
+always admitted, so a quiet department is never locked out by a busy one
+(the total can exceed the capacity by at most one request per tenant); a
+tenant at its share is refused while others are active or the server is
+full.
 """
 
 from __future__ import annotations
@@ -74,6 +82,7 @@ class Admission:
         max_wait_s: float,
         concurrency: int,
         service_estimate_s: float = 1.0,
+        max_in_flight: int | None = None,
     ) -> None:
         self._clock = clock
         self._rate = rate_per_s
@@ -82,6 +91,7 @@ class Admission:
         self._max_wait = max_wait_s
         self._concurrency = concurrency
         self._service_s = service_estimate_s
+        self._capacity = max_in_flight
         self._buckets: dict[TenantId, TokenBucket] = {}
         self._depth: defaultdict[TenantId, int] = defaultdict(int)
 
@@ -98,6 +108,21 @@ class Admission:
         waiting = max(0, in_system + 1 - self._concurrency)
         return waiting * self._service_s / self._concurrency
 
+    def share(self, tenant: TenantId) -> int | None:
+        """The tenant's fair share of the capacity now (None: no capacity)."""
+        if self._capacity is None:
+            return None
+        active = {t for t, d in self._depth.items() if d > 0} | {tenant}
+        return max(1, self._capacity // len(active))
+
+    def _over_share(self, tenant: TenantId) -> bool:
+        share = self.share(tenant)
+        if share is None or self._depth[tenant] < share:
+            return False
+        others = any(d > 0 for t, d in self._depth.items() if t != tenant)
+        full = sum(self._depth.values()) >= (self._capacity or 0)
+        return others or full
+
     def admit(self, tenant: TenantId) -> Ticket:
         """Admits a request or rejects it immediately.
 
@@ -112,6 +137,8 @@ class Admission:
         """
         if self._depth[tenant] >= self._queue_max:
             raise RateLimited("tenant queue full", self._max_wait)
+        if self._over_share(tenant):
+            raise RateLimited("server busy: tenant at its fair share", 1.0)
         wait = self.estimated_wait_s()
         if wait > self._max_wait:
             raise RateLimited("estimated wait too long", wait - self._max_wait)

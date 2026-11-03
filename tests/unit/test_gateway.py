@@ -322,3 +322,12 @@ async def test_output_filter_passes_allowed_citations() -> None:
 def test_audit_record_has_no_text_fields() -> None:
     fields = set(AuditRecord.model_fields)
     assert not fields & {"query", "question", "answer", "text", "user_id"}
+
+
+async def test_null_cache_never_hits() -> None:
+    from askiisc.gateway.cache import NullAnswerCache
+
+    cache = NullAnswerCache()
+    value = CachedAnswer(answer=Answer(text="x"), documents=(), chunk_ids=())
+    await cache.set("k", value)
+    assert await cache.get("k") is None

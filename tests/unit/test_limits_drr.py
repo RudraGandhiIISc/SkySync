@@ -272,3 +272,43 @@ async def test_dispatcher_resize_follows_workers() -> None:
     await asyncio.wait_for(dispatcher.acquire(C, 1), timeout=1)
     with pytest.raises(ValueError):
         dispatcher.resize(0)
+
+
+def _capped(capacity: int) -> Admission:
+    return Admission(
+        FakeClock(),
+        rate_per_s=1000,
+        burst=1000,
+        queue_max=1000,
+        max_wait_s=1000,
+        concurrency=1000,
+        max_in_flight=capacity,
+    )
+
+
+def test_capacity_is_shared_fairly_between_tenants() -> None:
+    adm = _capped(4)
+    assert adm.share(A) == 4
+    heavy = [adm.admit(A) for _ in range(4)]  # alone: the whole capacity
+    with pytest.raises(RateLimited, match="fair share"):
+        adm.admit(A)  # full
+    light = adm.admit(B)  # below its share: admitted although full
+    assert adm.share(B) == 2 and adm.depth(B) == 1
+    adm.admit(B)
+    with pytest.raises(RateLimited, match="fair share"):
+        adm.admit(B)  # at its share while A is active
+    for t in heavy[:3]:
+        adm.release(t)
+    adm.admit(A)  # A back below its share of 2
+    with pytest.raises(RateLimited):
+        adm.admit(A)
+    adm.release(light)
+    assert adm.share(C) == 1  # three active tenants
+    adm.admit(C)
+
+
+def test_without_a_capacity_there_is_no_share() -> None:
+    adm = Admission(FakeClock(), 1000, 1000, 1000, 1000, 1000)
+    assert adm.share(A) is None
+    for _ in range(50):
+        adm.admit(A)

@@ -1,7 +1,7 @@
 """GPU worker pools.
 
 On the CSA server Slurm reserves no GPU, so a "GPU node" is a `vllm serve`
-process pinned to one H200 with CUDA_VISIBLE_DEVICES (docs/SERVER.md).
+process pinned to one H200 with CUDA_VISIBLE_DEVICES (docs/OPERATIONS.md).
 `ProcessPool` starts and stops those processes; `FakeWorkerPool` simulates
 acquisition and load times for tests. A SlurmPool (one job per worker) is
 not built: it needs the admin's permission first.
@@ -22,7 +22,7 @@ import httpx
 
 from askiisc.common.clock import Clock
 from askiisc.common.errors import AskIIScError
-from askiisc.common.targets import MAX_GPU_WORKERS
+from askiisc.common.targets import LLM_MAX_MODEL_LEN, MAX_GPU_WORKERS
 
 
 class WorkerState(StrEnum):
@@ -133,6 +133,10 @@ class FakeWorkerPool:
         worker = self._workers.pop(worker_id)
         worker.released_at = self._clock.now()
 
+    async def reap(self) -> list[str]:
+        """Nothing to reap: kill() already removes the worker."""
+        return []
+
 
 @dataclass(frozen=True)
 class GpuInfo:
@@ -200,7 +204,7 @@ class ProcessPoolConfig:
     model_args: list[str]
     log_dir: str
     max_workers: int = MAX_GPU_WORKERS
-    max_model_len: int = 4096
+    max_model_len: int = LLM_MAX_MODEL_LEN
     min_memory_fraction: float = 0.25
     load_timeout_s: float = 900.0
     poll_s: float = 2.0
@@ -246,6 +250,11 @@ class ProcessPool:
             "--enable-prefix-caching",
             "--max-model-len",
             str(c.max_model_len),
+            # Log each request's id (sent as X-Request-Id) but no prompt
+            # text: the logged prompt is cut to 0 characters.
+            "--enable-log-requests",
+            "--max-log-len",
+            "0",
             "--gpu-memory-utilization",
             f"{fraction:.2f}",
         ]
@@ -340,6 +349,34 @@ class ProcessPool:
     def list_workers(self) -> list[Worker]:
         """Returns live workers."""
         return [w for w, _ in self._workers.values()]
+
+    async def reap(self) -> list[str]:
+        """Removes ready workers whose process has died; returns their ids.
+
+        The controller calls this every step, so a crashed worker stops
+        receiving requests and is replaced if demand needs it (NFR-5).
+        """
+        dead = [
+            worker.worker_id
+            for worker, process in self._workers.values()
+            if worker.state == WorkerState.READY
+            and process.returncode is not None
+        ]
+        for worker_id in dead:
+            await self.release_worker(worker_id)
+        return dead
+
+    def kill(self, worker_id: str) -> None:
+        """Kills a worker's processes at once (fault injection, NFR-5).
+
+        Raises:
+            PoolError: If there is no such worker.
+        """
+        entry = self._workers.get(worker_id)
+        if entry is None:
+            raise PoolError(f"no worker {worker_id}")
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(entry[1].pid, signal.SIGKILL)
 
     async def close(self) -> None:
         """Stops every worker."""
