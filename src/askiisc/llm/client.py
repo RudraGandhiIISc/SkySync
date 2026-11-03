@@ -6,11 +6,12 @@ The model name is the only thing that changes between models (FR-8).
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 import httpx
 
+from askiisc.common import requestid
 from askiisc.common.errors import AskIIScError, LLMError
 from askiisc.common.targets import LLM_MAX_TOKENS, LLM_TEMPERATURE
 
@@ -44,8 +45,10 @@ class LLMClient:
         max_tokens: int = LLM_MAX_TOKENS,
         temperature: float = LLM_TEMPERATURE,
         timeout_s: float = 60.0,
+        extra_body: Mapping[str, object] | None = None,
     ) -> None:
         self._client = client
+        self._extra = dict(extra_body or {})
         self._base = base_url
         self.model = model
         self._max_tokens = max_tokens
@@ -82,6 +85,7 @@ class LLMClient:
             body["stream_options"] = {"include_usage": True}
         if cache_salt:
             body["cache_salt"] = cache_salt
+        body.update(self._extra)
         return body
 
     async def stream(
@@ -110,7 +114,11 @@ class LLMClient:
             raise LLMError(f"no LLM endpoint: {err}") from err
         try:
             async with self._client.stream(
-                "POST", url, json=body, timeout=self._timeout
+                "POST",
+                url,
+                json=body,
+                headers=requestid.headers(),
+                timeout=self._timeout,
             ) as response:
                 if response.status_code != httpx.codes.OK:
                     raise LLMError(f"LLM server said {response.status_code}")

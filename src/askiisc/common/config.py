@@ -15,21 +15,26 @@ class Settings(BaseSettings):
 
     # Model and serving (FR-8).
     model: str = "qwen3-4b-instruct-2507"
-    llm_base_url: str = "http://127.0.0.1:8001"
     llm_timeout_s: float = 60.0
 
-    # Services.
-    access_url: str = "http://127.0.0.1:8002"
-    embed_url: str = "http://127.0.0.1:8003"
-    milvus_uri: str = "/data4/muthangiv/askiisc/state/milvus.db"
-    redis_url: str = "redis://127.0.0.1:6379/0"
-    audit_path: str = "/data4/muthangiv/askiisc/state/audit.jsonl"
+    # Services (their addresses are chosen at start-up: deploy/serve.py).
+    access_timeout_s: float = Field(
+        default=targets.ACCESS_CLIENT_TIMEOUT_S, gt=0
+    )
 
     # Identity (A4).
     jwks_path: str = ""
     token_issuer: str = "iisc-sso"  # noqa: S105 - not a secret
     token_audience: str = "ask-iisc"  # noqa: S105 - not a secret
     directory_path: str = ""
+
+    # Password sign-in for Locust's test identities (ids without "@").
+    test_logins: bool = True
+    # Send the session cookie only over HTTPS (off for the SSH tunnel's
+    # http://localhost; on when the app is served over HTTPS).
+    secure_cookies: bool = False
+    # E-mail domains people may be added with on the dashboard (comma list).
+    email_domains: str = "iisc.ac.in"
 
     # Privacy (NFR-9). Required in deployment; no default secret.
     audit_salt: SecretStr = SecretStr("")
@@ -40,9 +45,17 @@ class Settings(BaseSettings):
     tenant_queue_max: int = Field(default=32, gt=0)
     tenant_queue_max_wait_s: float = Field(default=3.0, gt=0)
     llm_concurrency: int = Field(default=64, gt=0)
+    # Requests the gateway process handles at once before answering 429
+    # (FR-6). One Python process serves about 11 requests/s (2026-10-26);
+    # 24 in flight keeps p95 near 3 s. Shared fairly between departments.
+    max_in_flight: int = Field(default=24, gt=0)
 
     # Retrieval.
-    top_k: int = targets.RETRIEVAL_TOP_K
+    top_k: int = targets.PROMPT_TOP_K
+    embed_model: str = targets.EMBED_MODEL
+    # Empty: no reranking (hybrid search order is kept).
+    rerank_model: str = targets.RERANK_MODEL
+    rerank_candidates: int = Field(default=targets.RERANK_CANDIDATES, gt=0)
 
     # Autoscaler (FR-9, FR-10).
     max_workers: int = Field(

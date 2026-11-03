@@ -15,10 +15,31 @@ FR2_ACCESS_PROBES: Final = 10_000
 FR2_MAX_FORBIDDEN_CHUNKS: Final = 0
 FR2_MIN_RECALL_AT_K: Final = 0.95
 RETRIEVAL_TOP_K: Final = 8
+# Reranked chunks offered to the model (FR-2 recall is still measured at
+# RETRIEVAL_TOP_K). 12 rather than 8: on the 360 answerable v3 questions
+# the key fact reached the prompt for 89% instead of 84% (job 1734,
+# eval/versioned/retrieval.py).
+PROMPT_TOP_K: Final = 12
 HNSW_M: Final = 16
 HNSW_EF_CONSTRUCTION: Final = 200
 HNSW_EF_SEARCH: Final = 64
-EMBEDDING_DIM: Final = 768
+# BAAI/bge-m3 (phase 14): 1,024 dimensions, 8k-token passages.
+EMBEDDING_DIM: Final = 1024
+EMBED_MODEL: Final = "BAAI/bge-m3"
+RERANK_MODEL: Final = "BAAI/bge-reranker-v2-m3"
+# Hybrid-search candidates the cross-encoder reorders before the top_k
+# are kept; its input is cut to this many characters per chunk.
+# 80 rather than 40: fact recall 0.84 vs 0.79 (job 1734); 150 adds nothing.
+RERANK_CANDIDATES: Final = 80
+RERANK_PASSAGE_CHARS: Final = 2000
+# Questions about several years (or "what changed") search each year (an
+# academic year at its start and its end); at most this many as-of times.
+MAX_TIME_SCOPES: Final = 4
+# NFR-7 hybrid search: vector and BM25 candidates fused by reciprocal rank
+# (chosen on the held-out set: docs/results/retrieval-v2/README.md).
+HYBRID_CANDIDATES: Final = 20
+RRF_K: Final = 60
+KEYWORD_WEIGHT: Final = 2.0
 
 # FR-3 / NFR-10: access decisions.
 FR3_REVOCATION_SECONDS: Final = 60.0
@@ -55,11 +76,33 @@ FR7_MIN_CACHE_HIT_RATE: Final = 0.50
 FR7_MIN_TTFT_REDUCTION: Final = 0.25
 
 # FR-8: models.
-FR8_MODEL_COUNT: Final = 9
+# The PRD has 9. Gemma-3-4B and Llama-3.1-8B (licence-gated) and
+# Llama-3.1-8B-AWQ (its parent gone) were dropped on 2026-11-02: two each of
+# 4B, 8B and 4-bit 8B.
+FR8_MODEL_COUNT: Final = 6
 FR8_MIN_KV_ROOM_GAIN_4BIT: Final = 2.0
 LLM_MAX_TOKENS: Final = 256
 LLM_TEMPERATURE: Final = 0.0
 MAX_QUESTION_TOKENS: Final = 512
+# 8,192 rather than the README's 4,096: dense, number-heavy chunks run at
+# ~1.7 characters per token, so 9,000 characters reached 5,152 tokens
+# (job 1360). At that density the budget below is ~6k tokens, which fits
+# with the system prompt, a 512-token question and the 256-token answer.
+# Doubled with the prompt budget (12 chunks, 16,000 characters): ~9.4k
+# tokens of context at the worst density, plus prompt, question, answer.
+LLM_MAX_MODEL_LEN: Final = 16384
+# Retrieved text in one prompt.
+PROMPT_CONTEXT_CHARS: Final = 16000
+PROMPT_CHUNK_CHARS: Final = 2000
+# An answer whose content words are almost all missing from the chunks it
+# cites came from outside knowledge ("Paris", citing a seminar page) and
+# becomes the refusal. Tuned on the 400 edition-aware answers of
+# 2026-10-27: at 0.3 no graded answer changes; at 0.4 five correct answers
+# would be lost for two wrong ones caught.
+MIN_GROUNDED_SHARE: Final = 0.3
+# Multi-turn chat: earlier turns sent with a follow-up question.
+CHAT_HISTORY_MESSAGES: Final = 6
+CHAT_HISTORY_CHARS: Final = 1500
 
 # FR-9 / FR-10 / NFR-4: autoscaling.
 MAX_GPU_WORKERS: Final = 2
@@ -84,6 +127,7 @@ NFR3_TOKENS_PER_S_4B: Final = 600.0
 NFR3_TOKENS_PER_S_8B: Final = 250.0
 NFR3_TOKENS_PER_S_8B_4BIT: Final = 450.0
 NFR3_CROSSCHECK_TOLERANCE: Final = 0.03
+NFR3_CONCURRENCY: Final = 64  # throughput is read at this concurrency
 
 # NFR-4: scale.
 NFR4_USERS_PER_WORKER: Final = 60

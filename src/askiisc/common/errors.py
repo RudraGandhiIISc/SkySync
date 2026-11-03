@@ -30,10 +30,6 @@ class NotFound(AskIIScError):
     """A document, version or policy does not exist."""
 
 
-class StaleContent(AskIIScError):
-    """Content from a superseded document version was used."""
-
-
 class ConfigError(AskIIScError):
     """Configuration is missing or invalid."""
 

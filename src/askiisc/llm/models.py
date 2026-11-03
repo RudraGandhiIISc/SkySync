@@ -26,6 +26,15 @@ class ModelSpec(BaseModel):
     dtype: str
     quantization: str | None = None
     gated: bool = False
+    # Sent with every chat request; Qwen3 (hybrid reasoning) needs
+    # {"enable_thinking": false} to answer directly.
+    chat_template_kwargs: dict[str, bool] | None = None
+
+    def request_extra(self) -> dict[str, object]:
+        """Fields added to every chat request for this model."""
+        if not self.chat_template_kwargs:
+            return {}
+        return {"chat_template_kwargs": dict(self.chat_template_kwargs)}
 
     def vllm_args(self, local_dir: str | None = None) -> list[str]:
         """Builds the `vllm serve` arguments for this model.
