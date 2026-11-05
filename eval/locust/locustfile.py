@@ -45,6 +45,12 @@ from locust import HttpUser, LoadTestShape, between, constant, events, task
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from eval.locust.client_log import (  # noqa: E402
+    ClientLog,
+    ClientRecord,
+    citations_of,
+)
+from eval.locust.questions import FOLLOW_UPS, question_ids  # noqa: E402
 from eval.locust.workloads import WORKLOADS, plan, stage_at  # noqa: E402
 from eval.oracle.oracle import oracle_allows  # noqa: E402
 from eval.redteam import load_cases, planted_documents, verdict  # noqa: E402
@@ -52,12 +58,6 @@ from eval.redteam import load_cases, planted_documents, verdict  # noqa: E402
 HDR = {"Content-Type": "application/json", "X-AskIISc": "1"}
 REPO = Path(__file__).resolve().parents[2]
 DATA = Path(os.environ.get("ASKIISC_DATA", "/data4/muthangiv/askiisc"))
-FOLLOW_UPS = (
-    "Can you explain that in more detail?",
-    "Which document says this?",
-    "Does this apply to PhD students too?",
-    "What are the deadlines for that?",
-)
 # ---------------------------------------------------------------- data
 
 
@@ -103,6 +103,7 @@ ACCOUNTS = _accounts()
 USERS: list[dict[str, Any]] = ACCOUNTS["users"]
 PASSWORD: str = ACCOUNTS["password"]
 QUESTIONS = _questions()
+QUESTION_IDS = question_ids(QUESTIONS)
 ANSWERABLE = [q for q in QUESTIONS if q["category"] == "answerable"]
 PERMISSION = [q for q in QUESTIONS if q["category"] == "permission"]
 POLICIES = _policies()
@@ -153,6 +154,7 @@ class Results:
         self.counts: Counter[str] = Counter()
         self.samples: dict[str, list[float]] = defaultdict(list)
         self.answers: list[dict[str, Any]] = []
+        self.client = ClientLog()
         self.started = time.time()
 
     def count(self, key: str, n: int = 1) -> None:
@@ -235,6 +237,22 @@ class AskUser(HttpUser):
             )
         started = time.perf_counter()
         ttft = None
+
+        def log(
+            status: int, rid: str | None, answer: Any = None, warm: bool = False
+        ) -> None:
+            RESULTS.client.add(
+                ClientRecord(
+                    time=time.time(),
+                    request_id=rid,
+                    status=status,
+                    question_id=QUESTION_IDS.get(question),
+                    citations=citations_of(answer),
+                    warming=warm,
+                    seconds=time.perf_counter() - started,
+                )
+            )
+
         with http.post(
             path,
             json=body,
@@ -243,6 +261,9 @@ class AskUser(HttpUser):
             catch_response=True,
             name=name,
         ) as r:
+            rid = r.headers.get("X-Request-Id")
+            if r.status_code != 200:  # noqa: PLR2004
+                log(r.status_code, rid)
             if r.status_code == 429:  # noqa: PLR2004
                 r.request_meta["name"] = f"{name} [429 busy]"
                 r.success()
@@ -255,7 +276,8 @@ class AskUser(HttpUser):
             if r.status_code != 200:  # noqa: PLR2004
                 r.failure(f"HTTP {r.status_code}")
                 return None
-            ttft, answer, error = read_stream(r, started)
+            ttft, answer, error, warm = read_stream(r, started)
+            log(200, (answer or {}).get("request_id") or rid, answer, warm)
             r.request_meta["response_time"] = (
                 time.perf_counter() - started
             ) * 1e3
@@ -286,19 +308,21 @@ class AskUser(HttpUser):
 
 def read_stream(
     response: Any, started: float
-) -> tuple[float | None, dict[str, Any] | None, str | None]:
-    """Reads an answer stream: time to first token, answer, error."""
+) -> tuple[float | None, dict[str, Any] | None, str | None, bool]:
+    """Reads an answer stream: first token time, answer, error, warming."""
     ttft = answer = error = None
+    warming = False
     for event, data in sse_events(response):
         if event == "token" and ttft is None:
             ttft = time.perf_counter() - started
         elif event == "warming":
+            warming = True
             RESULTS.count("cold_holds")
         elif event == "answer":
             answer = data
         elif event == "error":
             error = data.get("error", "error")
-    return ttft, answer, error
+    return ttft, answer, error, warming
 
 
 def login(
@@ -1053,4 +1077,6 @@ def _on_stop(environment: Any, **_: Any) -> None:
         (folder / "answers.json").write_text(
             json.dumps(RESULTS.answers, indent=1)
         )
+    if len(RESULTS.client):
+        RESULTS.client.write(folder / "client_requests.jsonl")
     print(f"summary written to {folder}")
