@@ -134,6 +134,8 @@ Finally, this is a course project and not a live service. There is **no round-th
 
 **Workload generator.** Locust 2.x in master/worker mode on CPU nodes, separate from the serving path, using a custom user class that parses the SSE stream and records time to first token (TTFT), inter-token latency, end-to-end latency, output-token count, cold-start flag and HTTP status (so 429s from FR-6 count as shed, not as failures).
 
+**Where FR-6 is measured.** The 50 ms limit is judged at the serving node, from a request reaching the server to its 429 being sent (PRD v1.0 measured at the head node; here the serving job is that node); Locust's client-side times are reported alongside. Decided 2026-11-05.
+
 | Workload | Definition |
 |---|---|
 | W1 (normal load) | 3 tenants with disjoint access groups; 60 concurrent users; think time Exp(mean 10 s), giving ~4.4 req/s; questions drawn from the held-out set with Zipf(α=1.1) popularity, a ~60% repeat rate, so prefix-cache hit rate is a dial rather than an accident; mean prompt ~1,800 tokens (system prompt + 8 chunks × ~190), mean output ~180 tokens. |
