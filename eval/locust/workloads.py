@@ -23,6 +23,8 @@ from `peak` when it is given.
 | quality    | FR-1, NFR-7              | every held-out question once         |
 | auth       | security                 | bad logins, lockout, bad sessions    |
 | mixed      | demo                     | a realistic mix of everything        |
+| freshness  | FR-5, E5                 | 60 revisions over 20 docs, 1 per 20 s|
+| revocations| FR-3, E1                 | 100 scripted revocations, 5 at a time|
 | w1         | FR-7, NFR-1, E2          | PRD W1: 60 users, Exp(10 s) think    |
 | w2         | FR-6, E3, E4             | PRD W2: W1 at 1x, 2x and 3x          |
 | w3         | NFR-6, E3                | PRD W3: 24-hour trace, 24x faster    |
@@ -230,6 +232,12 @@ WORKLOADS: dict[str, tuple[str, int, Builder]] = {
         30,
         _fixed(("ChatUser", "TemporaryUser", "RepeatUser", "ProbeUser"), 1800),
     ),
+    "freshness": (
+        "FR-5, E5",
+        8,
+        _fixed(("FreshnessReplayUser", "FreshnessReader"), 1500),
+    ),
+    "revocations": ("FR-3, E1", 5, _fixed(("ScriptedRevocationUser",), 3600)),
     "w1": ("FR-7, NFR-1, E2", 60, _w1),
     "w2": ("FR-6, E3, E4", 60, _w2),
     "w3": ("NFR-6, E3", 60, _w3),

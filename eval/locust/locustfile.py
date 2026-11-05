@@ -26,6 +26,7 @@ import itertools
 import json
 import os
 import random
+import re
 import secrets
 import socket
 import sys
@@ -158,6 +159,7 @@ class Results:
         self.counts: Counter[str] = Counter()
         self.samples: dict[str, list[float]] = defaultdict(list)
         self.answers: list[dict[str, Any]] = []
+        self.events: list[dict[str, Any]] = []
         self.client = ClientLog()
         self.started = time.time()
 
@@ -170,6 +172,11 @@ class Results:
         """Records one measurement."""
         with self.lock:
             self.samples[key].append(value)
+
+    def event(self, row: dict[str, Any]) -> None:
+        """Records one timestamped event (written to events.jsonl)."""
+        with self.lock:
+            self.events.append({"time": time.time(), **row})
 
 
 RESULTS = Results()
@@ -661,6 +668,202 @@ class RevisionUser(AskUser):
         RESULTS.count("revisions_stale")
 
 
+class ScriptedRevocationUser(RevocationUser):
+    """E1: 100 scripted revocations, five at a time on different documents.
+
+    The same cycle as RevocationUser, probing every second for 75 s, until
+    REVOCATIONS_TOTAL cycles have run. Each cycle's time from the revoke to
+    the last answer that still cited the document goes to samples.json
+    (FR-3: at most 60 s).
+    """
+
+    fixed_count = 5
+    wait_time = constant(2)
+    PROBE_S = 1.0
+    WATCH_S = 75.0
+
+    @task
+    def revoke_and_watch(self) -> None:
+        """One revocation cycle on a document no other user is revoking."""
+        if RESULTS.counts["revocation_cycles"] >= REVOCATIONS_TOTAL:
+            gevent.sleep(5)
+            return
+        cases = [
+            (q, u)
+            for q in PERMISSION
+            for u in USERS
+            if q.get("doc_id") in RESTRICTED
+            and q["doc_id"] not in REVOKING
+            and allowed(u["user_id"], q["doc_id"])
+        ]
+        if not cases:
+            gevent.sleep(1)
+            return
+        item, reader = random.choice(cases)
+        REVOKING.add(item["doc_id"])
+        RESULTS.count("revocation_cycles")
+        try:
+            self._cycle(item, reader)
+        finally:
+            REVOKING.discard(item["doc_id"])
+
+    def _cycle(self, item: dict[str, Any], reader: dict[str, Any]) -> None:
+        doc = item["doc_id"]
+        saved = self.client.get(f"/api/admin/policies/{doc}", name="policy get")
+        if not saved.ok:
+            return
+        session = HttpSession(
+            self.host, self.environment.events.request, user=self
+        )
+        login(session, reader["user_id"])
+
+        def cites() -> bool:
+            answer = self.ask(
+                item["question"], True, "revocation reader", session,
+                reader["user_id"],
+            )  # fmt: skip
+            return bool(answer) and doc in {
+                c["doc_id"] for c in answer["citations"]
+            }
+
+        if not cites():
+            RESULTS.count("revocation_skipped")
+            return
+        policy = {k: v for k, v in saved.json().items() if k != "doc_id"}
+        self.client.delete(
+            f"/api/admin/policies/{doc}", headers=HDR, name="policy revoke"
+        )
+        revoked, last_seen = time.time(), 0.0
+        try:
+            while time.time() - revoked < self.WATCH_S:
+                if cites():
+                    last_seen = time.time() - revoked
+                gevent.sleep(self.PROBE_S)
+        finally:
+            self.client.put(
+                f"/api/admin/policies/{doc}", json=policy, headers=HDR,
+                name="policy restore",
+            )  # fmt: skip
+        RESULTS.sample("revocation_last_seen_s", last_seen)
+        RESULTS.event(
+            {"kind": "revocation", "doc": doc, "last_seen_s": last_seen}
+        )
+        RESULTS.count("revocations")
+        if last_seen > 60:  # noqa: PLR2004 - FR-3
+            RESULTS.count("revocation_leaks")
+
+
+REVOCATIONS_TOTAL = 100
+REVOKING: set[str] = set()
+"""Documents a ScriptedRevocationUser is revoking now."""
+FRESH_DOCS = tuple(f"loadtest-fresh-{i:02d}" for i in range(1, 21))
+FRESH_REVISIONS = 60
+FRESH_EVERY_S = 20.0
+PUBLISHED: dict[str, str] = {}
+"""Freshness document to the code of its newest published revision."""
+
+
+def fresh_question(doc: str) -> str:
+    """The question whose answer is a freshness document's code."""
+    number = doc.rsplit("-", 1)[1]
+    return f"What is the current revision code of freshness notice {number}?"
+
+
+class FreshnessReplayUser(AskUser):
+    """E5 / FR-5: 60 revisions across 20 documents, one every 20 s.
+
+    It does not wait for answers (FreshnessReader asks). Each publish is an
+    event (document, version, code), so eval/freshness_check.py can time
+    demotion and count unflagged stale answers.
+    """
+
+    fixed_count = 1
+    wait_time = constant(FRESH_EVERY_S)
+
+    def account_filter(self, u: dict[str, Any]) -> bool:  # type: ignore[override]
+        """An institute admin."""
+        return bool(u["role"] == "admin" and u["department"] == "institute")
+
+    def on_start(self) -> None:
+        """Gives each document a policy readable by the student readers."""
+        super().on_start()
+        readers = [u["user_id"] for u in USERS if u["role"] == "student"]
+        policy = {"owner": "institute", "allow_users": readers}
+        for doc in FRESH_DOCS:
+            EXTRA_POLICIES[doc] = {"doc_id": doc, **policy}
+            self.client.put(
+                f"/api/admin/policies/{doc}", json=policy, headers=HDR,
+                name="policy put",
+            )  # fmt: skip
+        self.done = 0
+
+    @task
+    def publish(self) -> None:
+        """Publishes the next revision, round robin over the documents."""
+        if self.done >= FRESH_REVISIONS:
+            return
+        doc = FRESH_DOCS[self.done % len(FRESH_DOCS)]
+        self.done += 1
+        code = f"F{self.done}-{random.randint(1000, 9999)}"
+        number = doc.rsplit("-", 1)[1]
+        text = (
+            f"Load-test freshness notice {number}.\n"
+            f"The current revision code of freshness notice {number} is "
+            f"{code}.\n"
+        )
+        r = self.client.post(
+            f"/api/admin/documents/{doc}/revise", json={"text": text},
+            headers=HDR, name="document revise",
+        )  # fmt: skip
+        if r.ok:
+            PUBLISHED[doc] = code
+            RESULTS.event(
+                {"kind": "publish", "doc": doc, "code": code,
+                 "version": r.json().get("version")}
+            )  # fmt: skip
+
+
+class FreshnessReader(AskUser):
+    """Asks for a freshness document's code, about every 2 s (FR-5)."""
+
+    wait_time = constant(2)
+
+    def account_filter(self, u: dict[str, Any]) -> bool:  # type: ignore[override]
+        """A student (the documents' readers)."""
+        return bool(u["role"] == "student")
+
+    @task
+    def read(self) -> None:
+        """Asks about one published document and logs what came back."""
+        if not PUBLISHED:
+            return
+        doc = random.choice(sorted(PUBLISHED))
+        sent = time.time()
+        answer = self.ask(fresh_question(doc), True, "freshness reader")
+        if answer is None:
+            return
+        RESULTS.event(
+            {
+                "kind": "answer",
+                "doc": doc,
+                "sent": sent,
+                "request_id": answer.get("request_id"),
+                "codes": quoted_codes(answer["text"]),
+                "staleness_flag": answer.get("staleness_flag"),
+                "citations": [
+                    {k: c.get(k) for k in ("doc_id", "version", "is_stale",
+                                           "superseded_by")}
+                    for c in answer["citations"]
+                ],
+            }
+        )  # fmt: skip
+
+
+def quoted_codes(text: str) -> list[str]:
+    """Freshness codes quoted in an answer."""
+    return re.findall(r"F\d+-\d{4}", text)
+
+
 class RedTeamUser(AskUser):
     """Asks each of the 90 red-team cases once (NFR-9), then ends the run.
 
@@ -1127,6 +1330,13 @@ def _on_stop(environment: Any, **_: Any) -> None:
         ],
     }
     (folder / "summary.json").write_text(json.dumps(summary, indent=1))
+    if RESULTS.events:
+        (folder / "events.jsonl").write_text(
+            "".join(json.dumps(e) + "\n" for e in RESULTS.events)
+        )
+    raw = {k: v for k, v in RESULTS.samples.items() if v}
+    if raw:
+        (folder / "samples.json").write_text(json.dumps(raw))
     if RESULTS.answers:
         (folder / "answers.json").write_text(
             json.dumps(RESULTS.answers, indent=1)
