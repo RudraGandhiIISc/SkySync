@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
+import json
 import logging
 import os
 import socket
@@ -22,7 +24,12 @@ from askiisc.access.directory import Directory
 from askiisc.access.policy import PolicyStore
 from askiisc.autoscaler.controller import Controller
 from askiisc.autoscaler.policy import ScalingConfig
-from askiisc.autoscaler.pool import ProcessPool, ProcessPoolConfig, WorkerPool
+from askiisc.autoscaler.pool import (
+    ProcessPool,
+    ProcessPoolConfig,
+    Worker,
+    WorkerPool,
+)
 from askiisc.common.clock import Clock, SystemClock
 from askiisc.common.config import Settings
 from askiisc.common.targets import EMBED_MODEL, RERANK_MODEL
@@ -34,7 +41,11 @@ from askiisc.ingest.pipeline import Ingestor
 from askiisc.ingest.reconciler import Reconciler
 from askiisc.ingest.versions import SQLiteVersionStore
 from askiisc.llm.models import select_model
-from askiisc.observability.gpu import read_gpus
+from askiisc.observability.gpu import (
+    descends_from,
+    read_gpus,
+    read_processes,
+)
 from askiisc.retrieval.embedder import HttpEmbedder
 from askiisc.retrieval.store import MilvusIndex
 
@@ -195,7 +206,25 @@ def make_pool(
         http,
         lambda: read_gpus(pynvml, allowed),
         free_port,
+        processes=lambda index: read_processes(pynvml, index),
+        is_ours=descends_from(os.getpid()),
     )
+
+
+def write_workers(path: Path, workers: list[Worker]) -> None:
+    """Writes every worker's lifecycle and card state (workers.json).
+
+    The cost model (NVML 6), the cold-start split (NFR-2) and the shared-card
+    flag (R-3) are read from this file after a run. Written atomically.
+
+    Args:
+        path: The file.
+        workers: Every worker the pool started, released ones included.
+    """
+    rows = [{**dataclasses.asdict(w), "state": str(w.state)} for w in workers]
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(rows, indent=1))
+    tmp.replace(path)
 
 
 def make_controller(

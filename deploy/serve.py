@@ -93,6 +93,7 @@ from deploy.stack import (
     make_controller,
     make_pool,
     wait_http,
+    write_workers,
 )
 
 LOG = logging.getLogger("askiisc.serve")
@@ -852,6 +853,7 @@ async def background(
             live.gpus = gpus
             await read_workers(live, http, web.clock.now())
             write_targets(paths, live.pool)
+            write_workers(paths.run / "workers.json", live.pool.history)
             now = web.clock.now()
             web.m.sessions.set(
                 await asyncio.to_thread(web.store.live_sessions, now)
@@ -1316,6 +1318,7 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
             task.cancel()
         await controller.close()
         write_targets(paths, pool)
+        write_workers(paths.run / "workers.json", pool.history)
         requests.close()
         await web.access_http.aclose()
         search_pool.shutdown(wait=False, cancel_futures=True)

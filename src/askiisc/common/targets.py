@@ -110,6 +110,10 @@ FR9_SCALE_OUT_SECONDS: Final = 180.0
 FR10_RELEASE_AFTER_IDLE_SECONDS: Final = 60.0
 FR10_SCRIPTED_COLD_STARTS: Final = 20
 AUTOSCALER_HYSTERESIS_S: Final = 30.0
+# R-3: a card counts as shared at a worker's start when its used memory
+# exceeds what our own processes account for by more than this (driver and
+# context overhead), for when NVML hides other users' processes.
+GPU_SHARED_SLACK_MIB: Final = 1024
 
 # FR-11: fairness.
 FR11_LOAD_RATIO: Final = 10.0

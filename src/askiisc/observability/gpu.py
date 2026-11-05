@@ -5,16 +5,21 @@ The NVML module is injected (`pynvml` in production, a fake in tests).
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from prometheus_client import CollectorRegistry, Gauge
 
-from askiisc.autoscaler.pool import GpuInfo
+from askiisc.autoscaler.pool import GpuInfo, GpuProcess
 from askiisc.common.clock import Clock
 
+LOG = logging.getLogger(__name__)
 _MIB = 1024 * 1024
+# Longest parent chain followed before giving up (guards against loops).
+_MAX_DEPTH = 64
 
 
 def read_gpus(
@@ -45,6 +50,72 @@ def read_gpus(
             )
         )
     return gpus
+
+
+def read_processes(nvml: Any, index: int) -> list[GpuProcess] | None:
+    """Lists the compute processes NVML shows on one card.
+
+    Args:
+        nvml: An initialised pynvml-compatible module.
+        index: The card.
+
+    Returns:
+        The processes (memory None where NVML hides it), or None if NVML
+        refused to list them; the caller then judges by memory alone.
+    """
+    handle = nvml.nvmlDeviceGetHandleByIndex(index)
+    try:
+        running = nvml.nvmlDeviceGetComputeRunningProcesses(handle)
+    except nvml.NVMLError as err:
+        LOG.warning("cannot list processes on GPU %d: %s", index, err)
+        return None
+    return [
+        GpuProcess(
+            int(p.pid),
+            None if p.usedGpuMemory is None else int(p.usedGpuMemory // _MIB),
+        )
+        for p in running
+    ]
+
+
+def proc_parent(pid: int) -> int | None:
+    """The parent pid from /proc, or None if the process is gone."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return None
+    # Field 4 follows the command name, which is in parentheses and may
+    # itself contain spaces.
+    return int(stat.rsplit(")", 1)[1].split()[1])
+
+
+def descends_from(
+    root: int, parent_of: Callable[[int], int | None] = proc_parent
+) -> Callable[[int], bool]:
+    """A test for "this pid is `root` or one of its descendants".
+
+    Args:
+        root: The serving job's own pid.
+        parent_of: Gives a pid's parent (None when unknown).
+
+    Returns:
+        A predicate on pids.
+    """
+
+    def ours(pid: int) -> bool:
+        current: int | None = pid
+        for _ in range(_MAX_DEPTH):
+            if current is None:
+                return False
+            if current == root:
+                return True
+            parent = parent_of(current)
+            if parent == current:
+                return False
+            current = parent
+        return False
+
+    return ours
 
 
 @dataclass(frozen=True)

@@ -22,7 +22,11 @@ import httpx
 
 from askiisc.common.clock import Clock
 from askiisc.common.errors import AskIIScError
-from askiisc.common.targets import LLM_MAX_MODEL_LEN, MAX_GPU_WORKERS
+from askiisc.common.targets import (
+    GPU_SHARED_SLACK_MIB,
+    LLM_MAX_MODEL_LEN,
+    MAX_GPU_WORKERS,
+)
 
 
 class WorkerState(StrEnum):
@@ -50,6 +54,12 @@ class Worker:
     acquired_at: float | None = None
     ready_at: float | None = None
     released_at: float | None = None
+    # The card at the worker's start (R-3: record free memory and sharing).
+    gpu_free_mib: int | None = None
+    gpu_total_mib: int | None = None
+    gpu_utilization: int | None = None
+    gpu_shared: bool | None = None
+    gpu_shared_method: str | None = None
 
 
 class WorkerPool(Protocol):
@@ -148,6 +158,64 @@ class GpuInfo:
     total_mib: int
 
 
+@dataclass(frozen=True)
+class GpuProcess:
+    """A compute process NVML lists on a card (memory None if hidden)."""
+
+    pid: int
+    used_mib: int | None
+
+
+@dataclass(frozen=True)
+class GpuOccupancy:
+    """Whether anything outside this job used a card.
+
+    Attributes:
+        shared: True if another process (any user's, any other job's) held
+            the card.
+        method: "processes" when NVML showed a process outside this job;
+            otherwise "memory": used memory minus our own processes'
+            memory, against GPU_SHARED_SLACK_MIB (NVML may hide other
+            users' processes from a non-root user).
+        used_mib: The card's used memory.
+        own_mib: Memory of this job's own processes on it.
+        foreign_processes: Processes seen that are not this job's.
+    """
+
+    shared: bool
+    method: str
+    used_mib: int
+    own_mib: int
+    foreign_processes: int
+
+
+def occupancy(
+    gpu: GpuInfo,
+    processes: Sequence[GpuProcess] | None,
+    is_ours: Callable[[int], bool],
+    slack_mib: int = GPU_SHARED_SLACK_MIB,
+) -> GpuOccupancy:
+    """Decides whether a card is shared.
+
+    Args:
+        gpu: The card's memory reading.
+        processes: Its compute processes, or None if NVML could not list
+            them.
+        is_ours: True for a pid that belongs to this job.
+        slack_mib: Used memory allowed beyond our own processes.
+
+    Returns:
+        The verdict and the method that decided it.
+    """
+    used = gpu.total_mib - gpu.free_mib
+    listed = processes or []
+    foreign = [p for p in listed if not is_ours(p.pid)]
+    own = sum(p.used_mib or 0 for p in listed if is_ours(p.pid))
+    if foreign:
+        return GpuOccupancy(True, "processes", used, own, len(foreign))
+    return GpuOccupancy(used - own > slack_mib, "memory", used, own, 0)
+
+
 def choose_gpu(gpus: Sequence[GpuInfo], exclude: set[int]) -> GpuInfo | None:
     """Picks the least busy card by utilisation, then free memory."""
     candidates = [g for g in gpus if g.index not in exclude]
@@ -224,7 +292,26 @@ class ProcessPool:
         gpus: Callable[[], list[GpuInfo]],
         ports: Callable[[], int],
         launcher: Launcher = launch,
+        processes: Callable[[int], Sequence[GpuProcess] | None] = (
+            lambda index: None
+        ),
+        is_ours: Callable[[int], bool] = lambda pid: False,
     ) -> None:
+        """Creates an empty pool.
+
+        Args:
+            config: How to start vLLM.
+            clock: The clock.
+            http: Client for health checks.
+            gpus: Reads every card's use and memory.
+            ports: Gives a free port.
+            launcher: Starts a process.
+            processes: Lists a card's compute processes (None: unknown).
+            is_ours: True for a pid of this job (for the sharing check).
+
+        Raises:
+            ValueError: If max_workers is not 1 or 2.
+        """
         if not 0 < config.max_workers <= MAX_GPU_WORKERS:
             raise ValueError("max_workers must be 1 or 2")
         self._config = config
@@ -233,8 +320,11 @@ class ProcessPool:
         self._gpus = gpus
         self._ports = ports
         self._launch = launcher
+        self._processes = processes
+        self._is_ours = is_ours
         self._workers: dict[str, tuple[Worker, Process]] = {}
         self._next = 0
+        self.history: list[Worker] = []
 
     def command(self, port: int, fraction: float) -> list[str]:
         """The vLLM command line for one worker."""
@@ -271,6 +361,8 @@ class ProcessPool:
         self._next += 1
         worker = Worker(f"vllm-{self._next}", requested_at=self._clock.now())
         gpu = self._pick(worker)
+        self._record_card(worker, gpu)
+        self.history.append(worker)
         await self._clock.sleep(self._config.acquire_delay_s)
         port = self._ports()
         worker.url, worker.acquired_at = (
@@ -291,6 +383,12 @@ class ProcessPool:
         worker.state = WorkerState.LOADING
         await self._wait_healthy(worker, process)
         return worker
+
+    def _record_card(self, worker: Worker, gpu: GpuInfo) -> None:
+        occ = occupancy(gpu, self._processes(gpu.index), self._is_ours)
+        worker.gpu_free_mib, worker.gpu_total_mib = gpu.free_mib, gpu.total_mib
+        worker.gpu_utilization = gpu.utilization
+        worker.gpu_shared, worker.gpu_shared_method = occ.shared, occ.method
 
     def _log_path(self, worker: Worker) -> str:
         return f"{self._config.log_dir}/{worker.worker_id}.log"
