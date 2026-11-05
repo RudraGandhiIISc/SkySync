@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import dataclasses
 import hashlib
 import json
 import logging
@@ -35,6 +36,7 @@ import socket
 import sqlite3
 import subprocess  # nosec B404 - only the system htpasswd, fixed arguments
 import sys
+import threading
 import time
 from collections.abc import AsyncIterator, Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
@@ -73,6 +75,13 @@ from askiisc.llm.client import LLMClient
 from askiisc.llm.models import select_model
 from askiisc.llm.rag import RagAnswerer
 from askiisc.observability.metrics import GatewayMetrics
+from askiisc.observability.timing import (
+    JsonLines,
+    LoopLag,
+    ResponseTimer,
+    StackSampler,
+    timing_row,
+)
 from askiisc.observability.vllm_stats import ServingStats, parse_metrics
 from askiisc.retrieval.dense import DenseIndex, open_dense
 from askiisc.retrieval.embedder import HttpEmbedder, query_prefix
@@ -307,6 +316,8 @@ def prometheus_config(
 PROMETHEUS_USER = "prometheus"
 # Threads for index searches, apart from the default pool (logins, chats).
 SEARCH_THREADS = 4
+# Stack-sample interval with ASKIISC_PROFILE=1 (200 per second).
+PROFILE_INTERVAL_S = 0.005
 LOCUST_UI_USER = "admin"
 
 
@@ -1196,9 +1207,11 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
             settings.tenant_rate_per_s,
             settings.tenant_burst,
             settings.tenant_queue_max,
-            settings.max_cold_hold_s + 60,
+            settings.tenant_queue_max_wait_s,
             concurrency=slots,
             max_in_flight=settings.max_in_flight,
+            ready_workers=controller.ready_count,
+            enabled=settings.admission,
         ),
         dispatcher=dispatcher,
         cache=InMemoryAnswerCache(clock),
@@ -1283,10 +1296,18 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
         LOG.info("allowlist started with %d people of the directory", added)
     app = create_gateway(deps)
     mount_web(app, web)
+    timing = NodeTiming(paths.run, profile=settings.profile)
+    app.add_middleware(
+        ResponseTimer,
+        record=timing.response,
+        monotonic=time.perf_counter,
+        wall=time.time,
+    )
     tasks = [
         asyncio.create_task(controller.run(interval_s=1.0)),
         asyncio.create_task(background(live, metrics, web, paths)),
         asyncio.create_task(backups(databases, paths.app)),
+        asyncio.create_task(timing.lag.run()),
     ]
     config = uvicorn.Config(
         app,
@@ -1319,6 +1340,7 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
         await controller.close()
         write_targets(paths, pool)
         write_workers(paths.run / "workers.json", pool.history)
+        timing.close()
         requests.close()
         await web.access_http.aclose()
         search_pool.shutdown(wait=False, cancel_futures=True)
@@ -1328,6 +1350,51 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
             )
         (paths.data / "run" / "current.json").unlink(missing_ok=True)
     return 0
+
+
+class NodeTiming:
+    """FR-6 timing files of a run: responses, loop lag and the profile.
+
+    `responses.jsonl` has one line per question request (status and
+    milliseconds at the serving node), `loop_lag.jsonl` one line per second
+    and, with ASKIISC_PROFILE=1, `profile.folded` the event loop's sampled
+    stacks.
+    """
+
+    def __init__(self, run: Path, profile: bool) -> None:
+        self._run = run
+        self._responses = JsonLines(run / "responses.jsonl")
+        self._lags = JsonLines(run / "loop_lag.jsonl")
+        self.lag = LoopLag(
+            asyncio.sleep,
+            time.perf_counter,
+            time.time,
+            lambda w: self._lags.write(dataclasses.asdict(w)),
+        )
+        self._stop = threading.Event()
+        self._sampler: StackSampler | None = None
+        if profile:
+            self._sampler = StackSampler(
+                sys._current_frames,
+                threading.get_ident(),
+                PROFILE_INTERVAL_S,
+                self._stop,
+            )
+            threading.Thread(
+                target=self._sampler.run, name="profile", daemon=True
+            ).start()
+
+    def response(self, timing: Any) -> None:
+        """Writes one response's timing."""
+        self._responses.write(timing_row(timing))
+
+    def close(self) -> None:
+        """Stops the sampler and closes the files."""
+        self._stop.set()
+        if self._sampler is not None:
+            (self._run / "profile.folded").write_text(self._sampler.folded())
+        self._responses.close()
+        self._lags.close()
 
 
 def write_current(
