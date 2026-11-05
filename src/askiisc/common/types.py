@@ -67,14 +67,29 @@ class Chunk(_Frozen):
         return self.valid_from <= at and not ended
 
 
+class DocRef(_Frozen):
+    """One version of one document."""
+
+    doc_id: DocId
+    version: Version = Field(ge=1)
+
+
 class Citation(_Frozen):
-    """A reference from an answer to the chunk that supports it."""
+    """A reference from an answer to the chunk that supports it.
+
+    Attributes:
+        is_stale: The cited version was superseded when the answer was made.
+        superseded_by: For a stale citation, the version that replaced it
+            (the next revision, or the newer edition's current version);
+            None when it is current or the replacement is unknown (FR-5).
+    """
 
     doc_id: DocId
     version: Version = Field(ge=1)
     chunk_id: ChunkId
     page: int = Field(ge=1)
     is_stale: bool = False
+    superseded_by: DocRef | None = None
 
 
 class Answer(_Frozen):

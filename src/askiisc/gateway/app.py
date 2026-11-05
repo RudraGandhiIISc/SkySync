@@ -640,6 +640,9 @@ class _Session:
             "abstained": answer.abstained,
             "citations": [c.model_dump() for c in answer.citations],
             "stale": any(c.is_stale for c in answer.citations),
+            # FR-5: true if any citation is superseded ("stale" is kept for
+            # older pages).
+            "staleness_flag": any(c.is_stale for c in answer.citations),
             "model": self.deps.rag.model,
             "cache_hit": self.cache_hit,
         }

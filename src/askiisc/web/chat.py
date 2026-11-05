@@ -199,7 +199,15 @@ def enrich(web: WebDeps, payload: dict[str, Any]) -> dict[str, Any]:
             int(c.get("page") or 1),
             web.chunk_text(str(c.get("chunk_id", ""))),
         )
-        citations.append({**c, **doc, "link": link})
+        replaced = c.get("superseded_by")
+        if replaced:  # FR-5: name the replacement for the badge
+            newer = web.docs(str(replaced["doc_id"]))
+            replaced = {
+                **replaced,
+                "title": newer.get("title", replaced["doc_id"]),
+                "url": newer.get("url", ""),
+            }
+        citations.append({**c, **doc, "link": link, "superseded_by": replaced})
     return {**payload, "citations": citations}
 
 

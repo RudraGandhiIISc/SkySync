@@ -53,6 +53,15 @@ function withCitations(text, citations) {
   return markdown(marked).replace(/\u0000(\d+)\u0001/g,
     (_, n) => `<sup><a href="#" data-src="${n}">${n}</a></sup>`);
 }
+// FR-5: say what replaced a superseded citation, when it is known.
+function supersededText(c) {
+  const by = c.superseded_by;
+  if (!by) return "superseded";
+  if (by.doc_id === c.doc_id) return `superseded by version ${esc(by.version)}`;
+  const title = esc(by.title || by.doc_id);
+  const named = by.url ? `<a href="${esc(by.url)}" target="_blank" rel="noopener noreferrer">${title}</a>` : title;
+  return `superseded by a newer edition: ${named}`;
+}
 function sourcesHtml(citations) {
   if (!citations || !citations.length) return "";
   const cards = citations.map((c, i) => {
@@ -61,7 +70,7 @@ function sourcesHtml(citations) {
     const t = href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer" title="Open the cited passage">${title}</a>` : title;
     const where = c.kind === "pdf" ? `PDF, page ${esc(c.page)}` : c.kind === "html" ? "Web page" : `Page ${esc(c.page)}`;
     const site = c.site ? `${esc(c.site)}, ` : "";
-    const stale = c.is_stale ? ', <span class="stale">superseded</span>' : "";
+    const stale = c.is_stale ? `, <span class="stale">${supersededText(c)}</span>` : "";
     // Yearly documents name their edition; others their version.
     const edition = c.edition ? `edition ${esc(c.edition)}` : `version ${esc(c.version)}`;
     const archived = c.archived ? ", archived copy" : "";

@@ -19,12 +19,20 @@ from __future__ import annotations
 
 import contextlib
 import re
-from collections.abc import AsyncIterator, Iterable, Sequence
+from collections.abc import AsyncIterator, Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 
 from askiisc.common.clock import Clock
 from askiisc.common.targets import MIN_GROUNDED_SHARE, REFUSAL_TEXT
-from askiisc.common.types import Answer, Chunk, ChunkId, Citation
+from askiisc.common.types import (
+    Answer,
+    Chunk,
+    ChunkId,
+    Citation,
+    DocId,
+    DocRef,
+    Version,
+)
 from askiisc.llm.client import LLMClient, Message, StreamState, Usage
 from askiisc.llm.prompts import (
     EDITION_RULE,
@@ -132,7 +140,16 @@ def canonical_marks(text: str, chunks: Sequence[Chunk]) -> str:
     return CITATION.sub(mark, text)
 
 
-def parse_answer(text: str, chunks: tuple[Chunk, ...], now: float) -> Answer:
+Successor = Callable[[DocId, Version], DocRef | None]
+"""Names the version that replaced a document version (ingest/lineage)."""
+
+
+def parse_answer(
+    text: str,
+    chunks: tuple[Chunk, ...],
+    now: float,
+    successor: Successor | None = None,
+) -> Answer:
     """Turns model output into an Answer.
 
     Citations may name a chunk by its position in the prompt or by its id;
@@ -142,6 +159,7 @@ def parse_answer(text: str, chunks: tuple[Chunk, ...], now: float) -> Answer:
         text: The generated text.
         chunks: The chunks retrieved for this request, in prompt order.
         now: Current time, for stale flags.
+        successor: Names what replaced a stale citation's version.
 
     Returns:
         The answer with only valid citations, in order of first mention,
@@ -162,6 +180,11 @@ def parse_answer(text: str, chunks: tuple[Chunk, ...], now: float) -> Answer:
             continue
         seen.add(chunk.id)
         stale = chunk.valid_to is not None and chunk.valid_to <= now
+        replaced = (
+            successor(chunk.doc_id, chunk.version)
+            if stale and successor is not None
+            else None
+        )
         citations.append(
             Citation(
                 doc_id=chunk.doc_id,
@@ -169,6 +192,7 @@ def parse_answer(text: str, chunks: tuple[Chunk, ...], now: float) -> Answer:
                 chunk_id=chunk.id,
                 page=chunk.page,
                 is_stale=stale,
+                superseded_by=replaced,
             )
         )
     if not citations:
@@ -239,11 +263,13 @@ class RagAnswerer:
         llm: LLMClient,
         clock: Clock,
         labels: DocLabels | None = None,
+        successor: Successor | None = None,
     ) -> None:
         self._retriever = retriever
         self._llm = llm
         self._clock = clock
         self._labels = labels
+        self._successor = successor
 
     @property
     def model(self) -> str:
@@ -316,7 +342,9 @@ class RagAnswerer:
     def finish(self, prepared: Prepared) -> Answer:
         """Parses the streamed text into an Answer."""
         text = "".join(prepared.state.text)
-        return parse_answer(text, prepared.chunks, self._clock.now())
+        return parse_answer(
+            text, prepared.chunks, self._clock.now(), self._successor
+        )
 
     async def answer(
         self,

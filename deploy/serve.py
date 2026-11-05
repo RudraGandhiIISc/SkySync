@@ -67,6 +67,7 @@ from askiisc.gateway.drr import FairDispatcher
 from askiisc.gateway.limits import Admission
 from askiisc.ingest.corpus import CorpusDoc, public_rows, read_titles
 from askiisc.ingest.editions import academic_year_label
+from askiisc.ingest.lineage import Lineage, next_editions
 from askiisc.ingest.objects import FileObjectStore
 from askiisc.ingest.pipeline import Ingestor
 from askiisc.ingest.reconciler import SourceDocument
@@ -1201,6 +1202,9 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
             llm,
             clock,
             labels=catalogue,
+            successor=Lineage(
+                versions, next_editions(public_rows(paths.corpus))
+            ),
         ),
         admission=Admission(
             clock,
