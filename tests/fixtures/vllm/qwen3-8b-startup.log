@@ -1,0 +1,7 @@
+[1;36m(APIServer pid=1381857)[0;0m INFO 11-05 08:22:37 [utils.py:233] non-default args: {'model_tag': 'Qwen/Qwen3-8B', 'host': '127.0.0.1', 'port': 53009, 'max_log_len': 0, 'model': 'Qwen/Qwen3-8B', 'dtype': 'bfloat16', 'max_model_len': 16384, 'served_model_name': ['qwen3-8b'], 'gpu_memory_utilization': 0.57, 'enable_prefix_caching': True, 'enable_log_requests': True}
+[1;36m(EngineCore_DP0 pid=1382209)[0;0m INFO 11-05 08:22:47 [gpu_model_runner.py:2653] Model loading took 15.2683 GiB and 3.360116 seconds
+[1;36m(EngineCore_DP0 pid=1382209)[0;0m INFO 11-05 08:22:55 [gpu_worker.py:298] Available KV cache memory: 58.66 GiB
+[1;36m(EngineCore_DP0 pid=1382209)[0;0m INFO 11-05 08:22:56 [kv_cache_utils.py:1087] GPU KV cache size: 427,184 tokens
+[1;36m(EngineCore_DP0 pid=1382209)[0;0m INFO 11-05 08:22:56 [kv_cache_utils.py:1091] Maximum concurrency for 16,384 tokens per request: 26.07x
+[1;36m(APIServer pid=1381857)[0;0m INFO 11-05 08:23:10 [loggers.py:147] Engine 000: vllm cache_config_info with initialization after num_gpu_blocks is: 26699
+[1;36m(APIServer pid=1381857)[0;0m INFO 11-05 08:23:10 [api_server.py:1912] Starting vLLM API server 0 on http://127.0.0.1:53009

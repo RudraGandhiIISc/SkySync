@@ -38,6 +38,11 @@ METRICS = {
         "<=",
         t.NFR6_MAX_GPU_HOURS_PER_1K,
     ),
+    # From the vLLM start-up log (observability/vllm_startup.py). The
+    # KV room depends on the card's free memory at the start; the FR-8
+    # 2x check compares models at one fixed budget.
+    "weights_gib": ("Model weights (GiB)", "number", "<=", None),
+    "kv_cache_tokens": ("KV cache (tokens)", "number", ">=", None),
 }
 """Field: (label, kind, better direction, PRD target or None)."""
 

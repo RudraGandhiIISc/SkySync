@@ -1,0 +1,7 @@
+[1;36m(APIServer pid=1477046)[0;0m INFO 11-05 10:54:51 [utils.py:233] non-default args: {'model_tag': 'Qwen/Qwen3-8B-AWQ', 'gpu_memory_utilization': 0.61
+}
+[1;36m(EngineCore_DP0 pid=1477095)[0;0m INFO 11-05 10:55:01 [gpu_model_runner.py:2653] Model loading took 5.7086 GiB and 3.216329 seconds
+[1;36m(EngineCore_DP0 pid=1477095)[0;0m INFO 11-05 10:55:10 [gpu_worker.py:298] Available KV cache memory: 73.82 GiB
+[1;36m(EngineCore_DP0 pid=1477095)[0;0m INFO 11-05 10:55:10 [kv_cache_utils.py:1087] GPU KV cache size: 537,504 tokens
+[1;36m(EngineCore_DP0 pid=1477095)[0;0m INFO 11-05 10:55:10 [kv_cache_utils.py:1091] Maximum concurrency for 16,384 tokens per request: 32.81x
+[1;36m(APIServer pid=1477046)[0;0m INFO 11-05 10:55:33 [loggers.py:147] Engine 000: vllm cache_config_info with initialization after num_gpu_blocks is: 33594
