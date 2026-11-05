@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from askiisc.access.directory import Directory
+from askiisc.access.directory import Directory, Person
 from askiisc.common.errors import AccessDenied, AuthError
 from askiisc.common.tokens import TokenVerifier
 from askiisc.common.types import TenantId, UserId
@@ -60,5 +60,9 @@ class Authenticator:
         person = self._directory.get(user)
         if person is None:
             raise AccessDenied("user not in directory")
-        tenant = TenantId(person.department or "unassigned")
-        return Caller(user_id=user, tenant=tenant, token=token)
+        return Caller(user_id=user, tenant=tenant_of(person), token=token)
+
+
+def tenant_of(person: Person) -> TenantId:
+    """A person's tenant: their department."""
+    return TenantId(person.department or "unassigned")

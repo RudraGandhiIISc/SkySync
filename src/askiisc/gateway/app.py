@@ -222,6 +222,21 @@ class _Arrival:
     active_workers: int
 
 
+@dataclass
+class Claim:
+    """An admission taken before the route ran (FR-6 fast shed path).
+
+    `EarlyAdmission` admits the request as soon as the session names the
+    tenant and stores the claim on the request; `ask` then uses its ticket
+    instead of admitting again. A claim not handed to a stream (`used`) is
+    released by the middleware when the route returns.
+    """
+
+    ticket: Ticket
+    arrival: _Arrival
+    used: bool = False
+
+
 def _arrive(deps: GatewayDeps) -> _Arrival:
     arrival = _Arrival(
         deps.monotonic(), StageTimer(deps.monotonic), deps.ready_count()
@@ -309,6 +324,7 @@ async def ask(
     body: AskRequest,
     header: str | None,
     origin: Origin | None = None,
+    claim: Claim | None = None,
 ) -> Response:
     """Answers one question: a JSON rejection or an SSE stream.
 
@@ -318,17 +334,66 @@ async def ask(
         header: The Authorization header value.
         origin: Set by the web app for its own requests; API calls are
             "api" and never synthetic.
+        claim: The admission `EarlyAdmission` already took, if any.
 
     Returns:
         An HTTP response.
     """
-    return await _ask(deps, body, header, origin or Origin())
+    return await _ask(deps, body, header, origin or Origin(), claim)
+
+
+def shed(
+    deps: GatewayDeps,
+    caller: Caller,
+    body: AskRequest,
+    arrival: _Arrival,
+    origin: Origin,
+    err: RateLimited,
+) -> Response:
+    """The audited 429 for a request admission refused (FR-6, FR-12)."""
+    deps.metrics.shed.labels(caller.tenant).inc()
+    deps.metrics.requests.labels(caller.tenant, "rejected").inc()
+    _Session(deps, caller, body, None, None, arrival, origin).audit(
+        "rejected", 429, "rate_limited"
+    )
+    retry = str(max(1, math.ceil(err.retry_after_s)))
+    return _error(429, "busy, retry later", **{"Retry-After": retry})
+
+
+def admit_early(
+    deps: GatewayDeps, caller: Caller, question: str, origin: Origin
+) -> Claim | Response:
+    """Admits a request before its route runs (FR-6 fast shed path).
+
+    Args:
+        deps: The gateway's dependencies.
+        caller: The session's user and tenant (token not needed).
+        question: The question (only its salted hash is stored).
+        origin: Where the request came from.
+
+    Returns:
+        A claim for the route, or the audited 429.
+    """
+    arrival = _arrive(deps)
+    deps.workers.note_request()
+    try:
+        ticket = deps.admission.admit(caller.tenant)
+    except RateLimited as err:
+        body = AskRequest.model_construct(
+            question=question, as_of=None, history=[]
+        )
+        return shed(deps, caller, body, arrival, origin, err)
+    return Claim(ticket, arrival)
 
 
 async def _ask(
-    deps: GatewayDeps, body: AskRequest, header: str | None, origin: Origin
+    deps: GatewayDeps,
+    body: AskRequest,
+    header: str | None,
+    origin: Origin,
+    claim: Claim | None = None,
 ) -> Response:
-    arrival = _arrive(deps)
+    arrival = _arrive(deps) if claim is None else claim.arrival
 
     def reject(
         caller: Caller, decision: Decision, status: int, why: RefusalReason
@@ -349,24 +414,26 @@ async def _ask(
     if len(body.question.split()) > MAX_QUESTION_TOKENS:
         reject(caller, "rejected", 413, "question_too_long")
         return _error(413, "question too long")
-    deps.workers.note_request()
-    try:
-        ticket = deps.admission.admit(caller.tenant)
-    except RateLimited as err:
-        deps.metrics.shed.labels(caller.tenant).inc()
-        deps.metrics.requests.labels(caller.tenant, "rejected").inc()
-        reject(caller, "rejected", 429, "rate_limited")
-        retry = str(max(1, math.ceil(err.retry_after_s)))
-        return _error(429, "busy, retry later", **{"Retry-After": retry})
+    if claim is None:
+        deps.workers.note_request()
+        try:
+            ticket = deps.admission.admit(caller.tenant)
+        except RateLimited as err:
+            return shed(deps, caller, body, arrival, origin, err)
+    else:
+        ticket = claim.ticket
     try:
         with arrival.timer.measure("access"):
             allowed = await deps.access.filter(caller.token, body.as_of)
     except AccessDenied as err:
-        deps.admission.release(ticket, completed=False)
+        if claim is None:  # a claim is released by its middleware
+            deps.admission.release(ticket, completed=False)
         reject(caller, "denied", 403, access_reason(err))
         return _error(403, "access check failed")
     session = _Session(deps, caller, body, ticket, allowed, arrival, origin)
     session.handed_off = arrival.timer.now()
+    if claim is not None:
+        claim.used = True  # the stream releases the ticket
     return StreamingResponse(
         session.events(),
         media_type="text/event-stream",

@@ -28,12 +28,14 @@ from askiisc.gateway.app import (
     REQUEST_ID_HEADER,
     TURN_MAX_CHARS,
     AskRequest,
+    Claim,
     Origin,
     Turn,
     ask,
     record_refusal,
     sse,
 )
+from askiisc.gateway.early import claim_of
 from askiisc.web.app import Me, WebDeps, error, is_real, run
 from askiisc.web.store import StoredMessage
 
@@ -334,8 +336,12 @@ def chat_router(  # noqa: PLR0915 - one route table
         )
 
     @router.post("/chats/{chat_id}/messages")
-    async def send(chat_id: str, body: Question, me: Me = user_dep) -> Response:
-        return await _send(web, me, chat_id, body.question, shown)
+    async def send(
+        chat_id: str, body: Question, request: Request, me: Me = user_dep
+    ) -> Response:
+        return await _send(
+            web, me, chat_id, body.question, shown, claim=claim_of(request)
+        )
 
     @router.post("/chats/{chat_id}/regenerate")
     async def regenerate(chat_id: str, me: Me = user_dep) -> Response:
@@ -360,10 +366,18 @@ def chat_router(  # noqa: PLR0915 - one route table
         )
 
     @router.post("/temporary")
-    async def temporary(body: TemporaryQuestion, me: Me = user_dep) -> Response:
-        request = AskRequest(question=body.question, history=body.history)
+    async def temporary(
+        body: TemporaryQuestion, request: Request, me: Me = user_dep
+    ) -> Response:
+        asked = AskRequest(question=body.question, history=body.history)
         origin = Origin("temporary", not is_real(me.user_id))
-        response = await ask(web.gateway, request, f"Bearer {me.token}", origin)
+        response = await ask(
+            web.gateway,
+            asked,
+            f"Bearer {me.token}",
+            origin,
+            claim_of(request),
+        )
 
         async def nothing(payload: dict[str, Any]) -> None:
             return None
@@ -392,6 +406,7 @@ async def _send(
     question: str,
     shown: Callable[[Me, str], Awaitable[list[dict[str, Any]]]],
     replaces: tuple[str, str] | None = None,
+    claim: Claim | None = None,
 ) -> Response:
     """Asks the gateway and saves the turn once the answer is streaming.
 
@@ -405,6 +420,7 @@ async def _send(
             stay out of the history and are deleted only once the gateway
             has accepted the request, so a refusal (429, access service
             down) loses nothing.
+        claim: The admission EarlyAdmission took for this request, if any.
     """
     origin = Origin("chat", not is_real(me.user_id))
     started = web.gateway.monotonic()
@@ -431,7 +447,9 @@ async def _send(
         refused.headers[REQUEST_ID_HEADER] = request_id
         return refused
     request = AskRequest(question=question, history=history)
-    response = await ask(web.gateway, request, f"Bearer {me.token}", origin)
+    response = await ask(
+        web.gateway, request, f"Bearer {me.token}", origin, claim
+    )
     if not isinstance(response, StreamingResponse):
         return response
     store, now = web.store, web.clock.now()

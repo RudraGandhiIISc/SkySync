@@ -44,7 +44,10 @@ from askiisc.common.clock import Clock
 from askiisc.common.errors import AuthError, ConfigError
 from askiisc.common.tokens import TokenIssuer
 from askiisc.common.types import UserId
-from askiisc.gateway.app import GatewayDeps
+from askiisc.gateway.app import GatewayDeps, Origin
+from askiisc.gateway.auth import Caller, tenant_of
+from askiisc.gateway.early import EarlyAdmission
+from askiisc.observability.timing import ask_kind
 from askiisc.web.mailer import Mailer
 from askiisc.web.passwords import (
     MAX_PASSWORD_CHARS,
@@ -350,6 +353,32 @@ def session_dependency(web: WebDeps) -> Callable[[Request], Awaitable[Me]]:
     return current
 
 
+def session_caller(
+    web: WebDeps,
+) -> Callable[[Any], Awaitable[tuple[Caller, Origin] | None]]:
+    """Names a question request's user and tenant from its cookie (FR-6).
+
+    Used by EarlyAdmission: one session lookup, no account checks (the
+    route still makes them). None for a cross-site request, no session or
+    a user not in the directory; the route then refuses it.
+    """
+
+    async def identify(scope: Any) -> tuple[Caller, Origin] | None:
+        request = Request(scope)
+        cookie = request.cookies.get(COOKIE)
+        if not cookie or not same_site(request):
+            return None
+        user = await run(web.store.session_user, cookie, web.clock.now())
+        person = web.directory.get(UserId(user)) if user else None
+        if user is None or person is None:
+            return None
+        caller = Caller(UserId(user), tenant_of(person), token="")  # nosec B106 - no token: the route verifies one
+        source = ask_kind(request.url.path) or "chat"
+        return caller, Origin(source, not is_real(user))
+
+    return identify
+
+
 def may_sign_in(web: WebDeps, user_id: str) -> bool:
     """Whether a user may hold a session now.
 
@@ -402,6 +431,10 @@ def mount_web(app: FastAPI, web: WebDeps) -> None:
     from askiisc.web.admin import admin_router  # noqa: PLC0415
     from askiisc.web.chat import chat_router  # noqa: PLC0415
 
+    # Inside SecurityHeaders, so an early 429 carries the same headers.
+    app.add_middleware(
+        EarlyAdmission, deps=web.gateway, identify=session_caller(web)
+    )
     app.add_middleware(SecurityHeaders)
     current = session_dependency(web)
     app.include_router(auth_router(web, current))
