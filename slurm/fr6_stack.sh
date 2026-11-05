@@ -2,8 +2,8 @@
 # FR-6 / E4: profile, then W2 with admission on and off, in one GPU job.
 # Parts, each on its own serving stack and run folder:
 #   profile      overload at 1x/2x/3x (2 min each), ASKIISC_PROFILE=1
-#   on-rep1..3   W2 (W1 at 1x, 2x, 3x), ASKIISC_ADMISSION=on
-#   off-rep1..3  W2, ASKIISC_ADMISSION=off (requests queue without bound)
+#   on           W2 (W1 at 1x, 2x, 3x) three times, ASKIISC_ADMISSION=on
+#   off          W2 three times, ASKIISC_ADMISSION=off (unbounded queue)
 # Each Locust run is turned into FR-6 numbers by eval/fr6_report.py.
 # From the repo root, with no other serving stack up; queue the standing
 # serving job behind it so it comes back however this job ends:
@@ -11,7 +11,7 @@
 #   sbatch --dependency=afterany:$J --partition=low_unl_1gpu --time=24:00:00 \
 #     --export=ALL,ASKIISC_MODEL=qwen3-8b-awq,ASKIISC_MAX_WORKERS=1,ASKIISC_RENEW=1,ASKIISC_RENEW_TIME=24:00:00 \
 #     slurm/serve.sh
-# Results: $ASKIISC_DATA/results/fr6/<job>/<part>/{serve,locust,report}
+# Results: $ASKIISC_DATA/results/fr6/<job>/<part>/{serve,rep<k>/{locust,report}}
 #SBATCH --job-name=askiisc_fr6
 #SBATCH --partition=low_unl_1gpu
 #SBATCH --ntasks=1
@@ -53,31 +53,40 @@ up() {
     sleep 10
   done
   echo "stack up after $(( $(date +%s) - start )) s ($1)"
+  # Other users' jobs take and free GPU memory within minutes: ask until a
+  # worker holds its card, so the measurement starts warm.
+  local port; port=$(python3 -c "import json;print(json.load(open('$CURRENT'))['ports']['web'])")
+  uv run python -m eval.locust.warmup "http://127.0.0.1:$port" --wait-s 5400 \
+    || { echo "no GPU worker"; stop; return 1; }
+  echo "worker ready after $(( $(date +%s) - start )) s"
 }
 
-# part <name> <admission> <profile> <workload> [locust args]
+# part <name> <admission> <profile> <runs> <workload> [locust args]
+# One stack, then <runs> Locust runs on it (the worker stays warm between
+# them); each run gets its own Locust folder and FR-6 report, windowed by
+# its own start time.
 part() {
-  local name=$1 admission=$2 profile=$3; shift 3
+  local name=$1 admission=$2 profile=$3 runs=$4; shift 4
   local dir="$BASE/$name"
-  mkdir -p "$dir/locust"
-  echo "== $name: admission $admission, profile $profile, $* ($(date +%T))"
+  echo "== $name: admission $admission, profile $profile, $runs x $* ($(date +%T))"
   export ASKIISC_ADMISSION=$admission ASKIISC_PROFILE=$profile
   up "$dir/serve" || return 1
-  ASKIISC_LOCUST_RESULTS="$dir/locust" bash slurm/loadtest.sh "$@" \
-    || echo "$name: locust exited non-zero"
+  for k in $(seq 1 "$runs"); do
+    mkdir -p "$dir/rep$k/locust"
+    echo "== $name rep $k ($(date +%T))"
+    ASKIISC_LOCUST_RESULTS="$dir/rep$k/locust" bash slurm/loadtest.sh "$@" \
+      || echo "$name rep $k: locust exited non-zero"
+    local run; run=$(ls -d "$dir/rep$k"/locust/*/ 2>/dev/null | head -1)
+    [ -n "$run" ] && uv run python -m eval.fr6_report "$dir/serve" "$run" "$dir/rep$k/report"
+  done
   stop
-  local run; run=$(ls -d "$dir"/locust/*/ 2>/dev/null | head -1)
-  [ -n "$run" ] && uv run python -m eval.fr6_report "$dir/serve" "$run" "$dir/report"
 }
 
 failed=0
 for p in $PARTS; do
   case $p in
-    profile) part profile on 1 overload --duration-scale 0.4 || failed=$((failed + 1)) ;;
-    on|off)
-      for k in $(seq 1 "$REPS"); do
-        part "$p-rep$k" "$p" 0 w2 || failed=$((failed + 1))
-      done ;;
+    profile) part profile on 1 1 overload --duration-scale 0.4 || failed=$((failed + 1)) ;;
+    on|off) part "$p" "$p" 0 "$REPS" w2 || failed=$((failed + 1)) ;;
   esac
 done
 echo "== FR-6 runs done, $failed part(s) failed ($(date +%T))"
