@@ -147,3 +147,17 @@ def test_question_ids_cover_dataset_and_follow_ups() -> None:
     assert len(log) == 1
     log.clear()
     assert len(log) == 0
+
+
+def test_reasons_statuses_and_stage_percentiles(tmp_path: Path) -> None:
+    refused = _record("r2", "denied").model_copy(
+        update={"reason": "access_check_timeout"}
+    )
+    client = [_answer("r1"), ClientRecord(2.0, "r2", 503, "a1")]
+    run, log, q = _run(tmp_path, [_record("r1"), refused], client)
+    report = check_run(run, log, [q])
+    assert report.passed
+    assert report.by_reason == {"none": 1, "access_check_timeout": 1}
+    assert report.client_status == {"200": 1, "503": 1}
+    assert report.stages_ms["embed_ms"]["p95"] == pytest.approx(94.0)
+    assert report.stages_ms["start_ms"] == {"p50": 0.0, "p95": 0.0}

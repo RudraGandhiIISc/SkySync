@@ -28,6 +28,7 @@ from askiisc.access.policy import AccessFilter
 from askiisc.common.clock import Clock
 from askiisc.common.errors import (
     AccessDenied,
+    AccessTimeout,
     AskIIScError,
     AuthError,
     ConfigError,
@@ -46,6 +47,7 @@ from askiisc.gateway.audit import (
     Decision,
     DocVersion,
     LatencyBreakdown,
+    RefusalReason,
     salted_hash,
 )
 from askiisc.gateway.auth import Authenticator, Caller
@@ -220,6 +222,61 @@ class _Arrival:
     active_workers: int
 
 
+def _arrive(deps: GatewayDeps) -> _Arrival:
+    arrival = _Arrival(
+        deps.monotonic(), StageTimer(deps.monotonic), deps.ready_count()
+    )
+    # Every call this request makes (access, embed, vLLM) carries this id.
+    REQUEST_ID.set(deps.new_id())
+    return arrival
+
+
+def access_reason(err: AccessDenied) -> RefusalReason:
+    """The audit reason for a failed access check."""
+    if isinstance(err, AccessTimeout):
+        return "access_check_timeout"
+    return "access_check_failed"
+
+
+def record_refusal(
+    deps: GatewayDeps,
+    header: str | None,
+    question: str,
+    origin: Origin,
+    err: AccessDenied,
+    access_s: float,
+) -> str:
+    """Audits a request the chat app refused before calling `ask` (FR-12).
+
+    The chat app checks access for a chat's history first; when that check
+    fails it answers 503 itself (fail closed), and this writes the audit
+    record the gateway would have written.
+
+    Args:
+        deps: The gateway's dependencies.
+        header: The Authorization header the app would have sent.
+        question: The question (only its salted hash is stored).
+        origin: Where the request came from.
+        err: The access failure.
+        access_s: Seconds the chat app spent loading the chat and checking
+            access before it refused.
+
+    Returns:
+        The audit record's request id (for the X-Request-Id header).
+    """
+    arrival = _arrive(deps)
+    arrival.started -= access_s
+    arrival.timer.add("access", access_s)
+    try:
+        caller = deps.auth.authenticate(header)
+    except (AuthError, AccessDenied):
+        caller = ANONYMOUS
+    body = AskRequest.model_construct(question=question, as_of=None, history=[])
+    session = _Session(deps, caller, body, None, None, arrival, origin)
+    session.audit("denied", 503, access_reason(err))
+    return session.request_id
+
+
 def create_app(deps: GatewayDeps) -> FastAPI:
     """Builds the gateway.
 
@@ -271,28 +328,26 @@ async def ask(
 async def _ask(
     deps: GatewayDeps, body: AskRequest, header: str | None, origin: Origin
 ) -> Response:
-    arrival = _Arrival(
-        deps.monotonic(), StageTimer(deps.monotonic), deps.ready_count()
-    )
-    # Every call this request makes (access, embed, vLLM) carries this id.
-    REQUEST_ID.set(deps.new_id())
+    arrival = _arrive(deps)
 
-    def reject(caller: Caller, decision: Decision, status: int) -> None:
+    def reject(
+        caller: Caller, decision: Decision, status: int, why: RefusalReason
+    ) -> None:
         _Session(deps, caller, body, None, None, arrival, origin).audit(
-            decision, status
+            decision, status, why
         )
 
     try:
         with arrival.timer.measure("auth"):
             caller = deps.auth.authenticate(header)
     except AuthError:
-        reject(ANONYMOUS, "rejected", 401)
+        reject(ANONYMOUS, "rejected", 401, "invalid_token")
         return _error(401, "invalid or missing token")
     except AccessDenied:
-        reject(ANONYMOUS, "denied", 403)
+        reject(ANONYMOUS, "denied", 403, "not_in_directory")
         return _error(403, "not in directory")
     if len(body.question.split()) > MAX_QUESTION_TOKENS:
-        reject(caller, "rejected", 413)
+        reject(caller, "rejected", 413, "question_too_long")
         return _error(413, "question too long")
     deps.workers.note_request()
     try:
@@ -300,17 +355,18 @@ async def _ask(
     except RateLimited as err:
         deps.metrics.shed.labels(caller.tenant).inc()
         deps.metrics.requests.labels(caller.tenant, "rejected").inc()
-        reject(caller, "rejected", 429)
+        reject(caller, "rejected", 429, "rate_limited")
         retry = str(max(1, math.ceil(err.retry_after_s)))
         return _error(429, "busy, retry later", **{"Retry-After": retry})
     try:
         with arrival.timer.measure("access"):
             allowed = await deps.access.filter(caller.token, body.as_of)
-    except AccessDenied:
+    except AccessDenied as err:
         deps.admission.release(ticket, completed=False)
-        reject(caller, "denied", 403)
+        reject(caller, "denied", 403, access_reason(err))
         return _error(403, "access check failed")
     session = _Session(deps, caller, body, ticket, allowed, arrival, origin)
+    session.handed_off = arrival.timer.now()
     return StreamingResponse(
         session.events(),
         media_type="text/event-stream",
@@ -350,6 +406,8 @@ class _Session:
         self.allowed = allowed
         self.started = arrival.started
         self.request_id = REQUEST_ID.get() or deps.new_id()
+        self.handed_off: float | None = None
+        self.reason: RefusalReason | None = None
         self.prepared: Prepared | None = None
         self.answer: Answer | None = None
         self.cache_hit = False
@@ -373,6 +431,8 @@ class _Session:
     async def events(self) -> AsyncIterator[bytes]:
         """Runs the request and yields its events."""
         decision: Decision = "error"
+        if self.handed_off is not None:
+            self.timer.add("start", self.timer.now() - self.handed_off)
         try:
             async for event in self._run():
                 yield event
@@ -381,8 +441,8 @@ class _Session:
                 if self.answer and self.answer.abstained
                 else "answered"
             )
-        except AccessDenied:
-            decision = "denied"
+        except AccessDenied as err:
+            decision, self.reason = "denied", access_reason(err)
             yield sse("error", {"error": "access check failed"})
         except AskIIScError as err:
             yield sse("error", {"error": type(err).__name__})
@@ -396,7 +456,8 @@ class _Session:
 
     async def _run(self) -> AsyncIterator[bytes]:
         if await self._from_cache():
-            yield self._answer_event()
+            async for event in self._deliver():
+                yield event
             return
         rag = self.deps.rag
         self.prepared = await rag.prepare(
@@ -411,15 +472,25 @@ class _Session:
                 yield event
             async for event in self._generate():
                 yield event
-        answer = rag.finish(self.prepared)
+        with self.timer.measure("finish"):
+            answer = rag.finish(self.prepared)
         with self.timer.measure("filter"):
             result = await filter_answer(
                 self.deps.access, self.caller.token, answer
             )
         self.answer = result.answer
         if not result.withheld:
-            await self._store()
+            with self.timer.measure("finish"):
+                await self._store()
+        async for event in self._deliver():
+            yield event
+
+    async def _deliver(self) -> AsyncIterator[bytes]:
+        # The code after the yield runs when the consumer asks for more:
+        # after the chat app has enriched and saved the answer.
+        sent = self.timer.now()
         yield self._answer_event()
+        self.timer.add("deliver", self.timer.now() - sent)
 
     async def _from_cache(self) -> bool:
         key = self.key
@@ -526,8 +597,19 @@ class _Session:
             usage = self.deps.rag.usage(self.prepared)
             metrics.tokens.labels(tenant).inc(usage.completion_tokens)
 
-    def audit(self, decision: Decision, status: int | None = None) -> None:
-        """Writes this request's audit record and request event."""
+    def audit(
+        self,
+        decision: Decision,
+        status: int | None = None,
+        reason: RefusalReason | None = None,
+    ) -> None:
+        """Writes this request's audit record and request event.
+
+        Args:
+            decision: The outcome.
+            status: The HTTP status, if the request was refused.
+            reason: Why it was refused (a fixed code), if it was.
+        """
         deps, salt = self.deps, self.deps.audit_salt
         docs: list[DocVersion] = []
         chunk_ids: tuple[str, ...] = ()
@@ -606,6 +688,7 @@ class _Session:
                 latency=LatencyBreakdown.from_stages(
                     self.timer.totals(), latency_ms
                 ),
+                reason=reason or self.reason,
             )
         )
 

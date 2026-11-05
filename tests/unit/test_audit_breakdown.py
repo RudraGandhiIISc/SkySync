@@ -240,3 +240,124 @@ def test_breakdown_has_every_stage_and_only_numbers() -> None:
     record_hints = typing.get_type_hints(AuditRecord)
     assert record_hints["active_workers"] is int
     assert record_hints["cold_start"] is bool
+
+
+async def test_start_prompt_finish_and_deliver_are_timed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Driven without HTTP, so the test decides when the stream starts and
+    # how long the consumer takes after the final answer event.
+    from askiisc.gateway.app import AskRequest, ask
+
+    stack, ticks = _timed_stack(monkeypatch)
+    import askiisc.llm.rag as rag_module
+
+    monkeypatch.setattr(
+        rag_module,
+        "build_messages",
+        _slow(ticks, 0.003, rag_module.build_messages),
+    )
+    rag = stack.deps.rag
+    monkeypatch.setattr(rag, "finish", _slow(ticks, 0.002, rag.finish))
+    header = f"Bearer {stack.w.token('u_cds_stu')}"
+    response = await ask(stack.deps, AskRequest(question=QUESTION), header)
+    ticks.now += 0.040  # the event loop gets to the stream late
+    async for chunk in response.body_iterator:  # type: ignore[attr-defined]
+        if bytes(chunk).startswith(b"event: answer"):
+            ticks.now += 0.025  # the chat app saves the answer
+    record = stack.audit.records[-1]
+    assert record.decision == "answered"
+    ms = _latency(record)
+    assert ms["start_ms"] == pytest.approx(40.0)
+    assert ms["prompt_ms"] == pytest.approx(3.0)
+    assert ms["finish_ms"] == pytest.approx(2.0)
+    assert ms["deliver_ms"] == pytest.approx(25.0)
+    assert ms["other_ms"] == pytest.approx(0.0, abs=1e-6)
+
+
+async def test_refusals_name_their_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from askiisc.common.errors import AccessTimeout
+
+    stack, _ = _timed_stack(monkeypatch, rate=1.0, burst=1.0)
+    await stack.ask(None, QUESTION)
+    await stack.ask("u_not_in_directory", QUESTION)
+    await stack.ask("u_cds_stu", "word " * 600)
+    await stack.ask("u_cds_stu", QUESTION)  # answered; empties the bucket
+    await stack.ask("u_cds_stu", "Mess fees?")
+    reasons = [(r.decision, r.reason) for r in stack.audit.records]
+    assert reasons == [
+        ("rejected", "invalid_token"),
+        ("denied", "not_in_directory"),
+        ("rejected", "question_too_long"),
+        ("answered", None),
+        ("rejected", "rate_limited"),
+    ]
+
+    async def slow(token: str, at: float | None = None) -> None:
+        raise AccessTimeout("timed out")
+
+    async def broken(token: str, at: float | None = None) -> None:
+        raise AccessDenied("500")
+
+    for fake, expected in (
+        (slow, "access_check_timeout"),
+        (broken, "access_check_failed"),
+    ):
+        timed = build()
+        monkeypatch.setattr(timed.deps.access, "filter", fake)
+        assert (await timed.ask("u_cds_stu", QUESTION)).status_code == 403  # noqa: PLR2004
+        assert timed.audit.records[-1].reason == expected
+
+
+async def test_mid_stream_access_timeout_is_recorded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from askiisc.common.errors import AccessTimeout
+
+    stack = build()
+
+    async def timeout(*a: object, **k: object) -> None:
+        raise AccessTimeout("slow")
+
+    monkeypatch.setattr(stack.deps.rag, "prepare", timeout)
+    await stack.ask("u_cds_stu", QUESTION)
+    record = stack.audit.records[-1]
+    assert (record.decision, record.reason) == (
+        "denied",
+        "access_check_timeout",
+    )
+
+
+async def test_record_refusal_writes_a_full_record() -> None:
+    from askiisc.common.errors import AccessTimeout
+    from askiisc.gateway.app import Origin, record_refusal
+
+    stack = build()
+    ticks = Ticks()
+    stack.deps.monotonic = ticks
+    header = f"Bearer {stack.w.token('u_cds_stu')}"
+    rid = record_refusal(
+        stack.deps, header, QUESTION, Origin("chat"), AccessTimeout("x"), 0.3
+    )
+    record = stack.audit.records[-1]
+    assert record.request_id == rid
+    assert (record.decision, record.reason) == (
+        "denied",
+        "access_check_timeout",
+    )
+    assert record.tenant != "unknown" and record.active_workers == 1
+    assert record.latency.access_ms == pytest.approx(300.0)
+    assert record.latency_ms == pytest.approx(300.0)
+    anonymous = record_refusal(
+        stack.deps,
+        "Bearer bad",
+        QUESTION,
+        Origin("chat"),
+        AccessDenied("x"),
+        0.0,
+    )
+    last = stack.audit.records[-1]
+    assert last.request_id == anonymous and last.reason == "access_check_failed"
+    assert last.tenant == "unknown"

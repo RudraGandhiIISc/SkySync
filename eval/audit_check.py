@@ -11,8 +11,9 @@ client log, it checks:
 3. privacy: no question string the load test can send, and no user id,
    appears anywhere in the audit store.
 
-It also summarises the latency breakdown's `other_ms` (time no named stage
-explains). Usage:
+It also reports p50 and p95 of every latency stage, among them `other_ms`
+(time no named stage explains: p95 above 50 ms means a stage is untimed),
+the refusal reasons, and the client's statuses (for error shares). Usage:
 
     python -m eval.audit_check RUN_DIR CLIENT_LOG OUT_DIR \
         [--questions FILE.jsonl ...] [--users FILE.json]
@@ -29,7 +30,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from askiisc.gateway.audit import AuditRecord
+from askiisc.gateway.audit import AuditRecord, LatencyBreakdown
 from askiisc.gateway.cache import normalise
 from eval.locust.client_log import ClientRecord, read_client_log
 from eval.locust.questions import FOLLOW_UPS
@@ -63,7 +64,10 @@ class AuditReport:
     user_id_hits: int = 0
     other_ms_p50: float = 0.0
     other_ms_p95: float = 0.0
+    stages_ms: dict[str, dict[str, float]] = field(default_factory=dict)
     by_decision: dict[str, int] = field(default_factory=dict)
+    by_reason: dict[str, int] = field(default_factory=dict)
+    client_status: dict[str, int] = field(default_factory=dict)
 
     @property
     def passed(self) -> bool:
@@ -123,6 +127,8 @@ def completeness(
     report.gateway_requests = len(gateway_ids)
     report.missing_gateway = sorted(set(gateway_ids) - set(counts))
     report.by_decision = dict(Counter(r.decision for r in records))
+    report.by_reason = dict(Counter(r.reason or "none" for r in records))
+    report.client_status = dict(Counter(str(c.status) for c in client))
 
 
 def reproduction(
@@ -166,17 +172,24 @@ def privacy(
     )
 
 
+def _pct(values: Sequence[float], q: float) -> float:
+    ordered = sorted(values)
+    return ordered[min(len(ordered) - 1, int(q * len(ordered)))]
+
+
 def other_time(report: AuditReport, records: Sequence[AuditRecord]) -> None:
-    """p50 and p95 of other_ms over records that reached the model."""
-    values = sorted(
-        r.latency.other_ms
-        for r in records
-        if r.decision in ("answered", "abstained")
-    )
-    if not values:
+    """p50 and p95 of each stage over records that went past admission."""
+    served = [r for r in records if r.decision in ("answered", "abstained")]
+    if not served:
         return
-    report.other_ms_p50 = statistics.median(values)
-    report.other_ms_p95 = values[min(len(values) - 1, int(0.95 * len(values)))]
+    for name in LatencyBreakdown.model_fields:
+        values = [getattr(r.latency, name) for r in served]
+        report.stages_ms[name] = {
+            "p50": statistics.median(values),
+            "p95": _pct(values, 0.95),
+        }
+    report.other_ms_p50 = report.stages_ms["other_ms"]["p50"]
+    report.other_ms_p95 = report.stages_ms["other_ms"]["p95"]
 
 
 def check_run(

@@ -19,20 +19,25 @@
    "access_ms": 0.0,
    "auth_ms": 0.0,
    "cold_hold_ms": 0.0,
+   "deliver_ms": 0.0,
    "embed_ms": 0.0,
    "filter_ms": 0.0,
+   "finish_ms": 0.0,
    "first_token_ms": 0.0,
    "generation_ms": 0.0,
    "other_ms": 0.0,
+   "prompt_ms": 0.0,
    "queue_ms": 0.0,
    "rerank_ms": 0.0,
-   "search_ms": 0.0
+   "search_ms": 0.0,
+   "start_ms": 0.0
   },
   "latency_ms": 1450.5,
   "model": "Qwen3-4B-Instruct-2507",
   "policy_version": 7,
   "prompt_tokens": 900,
   "query_hash": "666257e306090fd3a83c1251b28a9825910a91087c21a4d194bac06265d65963",
+  "reason": null,
   "request_id": "r-0001",
   "stale": false,
   "tenant": "cds",
@@ -62,7 +67,7 @@
    },
    "LatencyBreakdown": {
     "additionalProperties": false,
-    "description": "Where one request's time went, in milliseconds (FR-12).\n\n`first_token_ms` runs from dispatch to the model until its first token;\n`generation_ms` from the first token to the last. `other_ms` is the\ntotal minus the named stages (never below 0), so the fields always add\nup to the request's latency; a large `other_ms` means a stage is\nmissing.",
+    "description": "Where one request's time went, in milliseconds (FR-12).\n\n`start_ms` is the wait from the gateway handing back the stream until\nthe event loop starts running it; `prompt_ms` the time scope and\nprompt building around the retriever's stages; `first_token_ms` runs\nfrom dispatch to the model until its first token; `generation_ms` from\nthe first token to the last; `finish_ms` parsing the answer and storing\nit in the answer cache; `deliver_ms` from sending the final answer\nevent until the stream closes (the chat app enriching and saving it,\nand the client reading it). `other_ms` is the\ntotal minus the named stages (never below 0), so the fields always add\nup to the request's latency; a large `other_ms` means a stage is\nmissing.",
     "properties": {
      "access_ms": {
       "default": 0.0,
@@ -82,6 +87,12 @@
       "title": "Cold Hold Ms",
       "type": "number"
      },
+     "deliver_ms": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Deliver Ms",
+      "type": "number"
+     },
      "embed_ms": {
       "default": 0.0,
       "minimum": 0,
@@ -92,6 +103,12 @@
       "default": 0.0,
       "minimum": 0,
       "title": "Filter Ms",
+      "type": "number"
+     },
+     "finish_ms": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Finish Ms",
       "type": "number"
      },
      "first_token_ms": {
@@ -112,6 +129,12 @@
       "title": "Other Ms",
       "type": "number"
      },
+     "prompt_ms": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Prompt Ms",
+      "type": "number"
+     },
      "queue_ms": {
       "default": 0.0,
       "minimum": 0,
@@ -128,6 +151,12 @@
       "default": 0.0,
       "minimum": 0,
       "title": "Search Ms",
+      "type": "number"
+     },
+     "start_ms": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Start Ms",
       "type": "number"
      }
     },
@@ -196,14 +225,18 @@
      "access_ms": 0.0,
      "auth_ms": 0.0,
      "cold_hold_ms": 0.0,
+     "deliver_ms": 0.0,
      "embed_ms": 0.0,
      "filter_ms": 0.0,
+     "finish_ms": 0.0,
      "first_token_ms": 0.0,
      "generation_ms": 0.0,
      "other_ms": 0.0,
+     "prompt_ms": 0.0,
      "queue_ms": 0.0,
      "rerank_ms": 0.0,
-     "search_ms": 0.0
+     "search_ms": 0.0,
+     "start_ms": 0.0
     }
    },
    "latency_ms": {
@@ -227,6 +260,26 @@
    "query_hash": {
     "title": "Query Hash",
     "type": "string"
+   },
+   "reason": {
+    "anyOf": [
+     {
+      "enum": [
+       "invalid_token",
+       "not_in_directory",
+       "question_too_long",
+       "rate_limited",
+       "access_check_timeout",
+       "access_check_failed"
+      ],
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Reason"
    },
    "request_id": {
     "title": "Request Id",

@@ -16,6 +16,15 @@ from typing import Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 Decision = Literal["answered", "abstained", "rejected", "denied", "error"]
+RefusalReason = Literal[
+    "invalid_token",
+    "not_in_directory",
+    "question_too_long",
+    "rate_limited",
+    "access_check_timeout",
+    "access_check_failed",
+]
+"""Why a request was refused before an answer (fixed codes, never text)."""
 
 
 def salted_hash(salt: str, value: str) -> str:
@@ -44,14 +53,18 @@ class DocVersion(BaseModel):
 STAGES = (
     "auth",
     "access",
+    "start",
     "embed",
     "search",
     "rerank",
+    "prompt",
     "cold_hold",
     "queue",
     "first_token",
     "generation",
+    "finish",
     "filter",
+    "deliver",
 )
 """The named stages of a request, in path order (seconds in StageTimer)."""
 
@@ -59,8 +72,14 @@ STAGES = (
 class LatencyBreakdown(BaseModel):
     """Where one request's time went, in milliseconds (FR-12).
 
-    `first_token_ms` runs from dispatch to the model until its first token;
-    `generation_ms` from the first token to the last. `other_ms` is the
+    `start_ms` is the wait from the gateway handing back the stream until
+    the event loop starts running it; `prompt_ms` the time scope and
+    prompt building around the retriever's stages; `first_token_ms` runs
+    from dispatch to the model until its first token; `generation_ms` from
+    the first token to the last; `finish_ms` parsing the answer and storing
+    it in the answer cache; `deliver_ms` from sending the final answer
+    event until the stream closes (the chat app enriching and saving it,
+    and the client reading it). `other_ms` is the
     total minus the named stages (never below 0), so the fields always add
     up to the request's latency; a large `other_ms` means a stage is
     missing.
@@ -70,14 +89,18 @@ class LatencyBreakdown(BaseModel):
 
     auth_ms: float = Field(default=0.0, ge=0)
     access_ms: float = Field(default=0.0, ge=0)
+    start_ms: float = Field(default=0.0, ge=0)
     embed_ms: float = Field(default=0.0, ge=0)
     search_ms: float = Field(default=0.0, ge=0)
     rerank_ms: float = Field(default=0.0, ge=0)
+    prompt_ms: float = Field(default=0.0, ge=0)
     cold_hold_ms: float = Field(default=0.0, ge=0)
     queue_ms: float = Field(default=0.0, ge=0)
     first_token_ms: float = Field(default=0.0, ge=0)
     generation_ms: float = Field(default=0.0, ge=0)
+    finish_ms: float = Field(default=0.0, ge=0)
     filter_ms: float = Field(default=0.0, ge=0)
+    deliver_ms: float = Field(default=0.0, ge=0)
     other_ms: float = Field(default=0.0, ge=0)
 
     @classmethod
@@ -132,6 +155,7 @@ class AuditRecord(BaseModel):
     active_workers: int = Field(default=0, ge=0)
     cold_start: bool = False
     latency: LatencyBreakdown = LatencyBreakdown()
+    reason: RefusalReason | None = None
 
 
 class AuditSink(Protocol):

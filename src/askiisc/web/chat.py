@@ -31,6 +31,7 @@ from askiisc.gateway.app import (
     Origin,
     Turn,
     ask,
+    record_refusal,
     sse,
 )
 from askiisc.web.app import Me, WebDeps, error, is_real, run
@@ -405,6 +406,8 @@ async def _send(
             has accepted the request, so a refusal (429, access service
             down) loses nothing.
     """
+    origin = Origin("chat", not is_real(me.user_id))
+    started = web.gateway.monotonic()
     try:
         chat = await run(web.store.chat, me.user_id, chat_id)
         earlier = await shown(me, chat_id)
@@ -413,10 +416,21 @@ async def _send(
         history = history_of(earlier)
     except NotFound:
         return error(404, "no such chat")
-    except AccessDenied:
-        return error(503, UNAVAILABLE)
+    except AccessDenied as err:
+        # Fail closed as before; the refusal is audited like the gateway's
+        # own (FR-12), with the reason (timeout or failure).
+        request_id = record_refusal(
+            web.gateway,
+            f"Bearer {me.token}",
+            question,
+            origin,
+            err,
+            web.gateway.monotonic() - started,
+        )
+        refused = error(503, UNAVAILABLE)
+        refused.headers[REQUEST_ID_HEADER] = request_id
+        return refused
     request = AskRequest(question=question, history=history)
-    origin = Origin("chat", not is_real(me.user_id))
     response = await ask(web.gateway, request, f"Bearer {me.token}", origin)
     if not isinstance(response, StreamingResponse):
         return response

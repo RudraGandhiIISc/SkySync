@@ -17,6 +17,7 @@ Output guards (NFR-9), applied to the final answer:
 
 from __future__ import annotations
 
+import contextlib
 import re
 from collections.abc import AsyncIterator, Iterable, Sequence
 from dataclasses import dataclass, field
@@ -222,6 +223,13 @@ def merge_hits(results: Sequence[SearchResult]) -> list[ScoredChunk]:
     return merged
 
 
+def _stage(
+    timer: StageTimer | None, stage: str
+) -> contextlib.AbstractContextManager[None]:
+    """Times a block on the request's timer, or does nothing without one."""
+    return contextlib.nullcontext() if timer is None else timer.measure(stage)
+
+
 class RagAnswerer:
     """Runs retrieval, prompting and generation for one question."""
 
@@ -263,20 +271,25 @@ class RagAnswerer:
         Raises:
             AccessDenied: If the access service cannot answer.
         """
-        query = retrieval_query(question, history)
-        now = self._clock.now()
-        scope = TimeScope((at,)) if at is not None else time_scope(query, now)
-        text = without_time(query) if scope.label else query
+        with _stage(timer, "prompt"):
+            query = retrieval_query(question, history)
+            now = self._clock.now()
+            scope = (
+                TimeScope((at,)) if at is not None else time_scope(query, now)
+            )
+            text = without_time(query) if scope.label else query
         results = [
             await self._search(token, text, instant, timer)
             for instant in scope.instants
         ]
-        chunks = fit_context([hit.chunk for hit in merge_hits(results)])
+        with _stage(timer, "prompt"):
+            chunks = fit_context([hit.chunk for hit in merge_hits(results)])
+            messages = build_messages(
+                chunks, question, history, self._labels, now, scope.label
+            )
         return Prepared(
             chunks=chunks,
-            messages=build_messages(
-                chunks, question, history, self._labels, now, scope.label
-            ),
+            messages=messages,
             policy_version=results[-1].policy_version,
             at=results[-1].at,
         )
