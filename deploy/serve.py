@@ -25,6 +25,7 @@ import argparse
 import asyncio
 import contextlib
 import dataclasses
+import gc
 import hashlib
 import json
 import logging
@@ -77,6 +78,7 @@ from askiisc.llm.models import select_model
 from askiisc.llm.rag import RagAnswerer
 from askiisc.observability.metrics import GatewayMetrics
 from askiisc.observability.timing import (
+    GcPauses,
     JsonLines,
     LoopLag,
     ResponseTimer,
@@ -1309,6 +1311,11 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
         LOG.info("allowlist started with %d people of the directory", added)
     app = create_gateway(deps)
     mount_web(app, web)
+    # The index and corpus loaded at start-up live until shutdown: keep them
+    # out of every later collection, which would otherwise walk them all
+    # while the event loop waits (FR-6 profile, run 2126).
+    gc.collect()
+    gc.freeze()
     timing = NodeTiming(paths.run, profile=settings.profile)
     app.add_middleware(
         ResponseTimer,
@@ -1370,9 +1377,9 @@ class NodeTiming:
     """FR-6 timing files of a run: responses, loop lag and the profile.
 
     `responses.jsonl` has one line per question request (status and
-    milliseconds at the serving node), `loop_lag.jsonl` one line per second
-    and, with ASKIISC_PROFILE=1, `profile.folded` the event loop's sampled
-    stacks.
+    milliseconds at the serving node), `loop_lag.jsonl` one line per second,
+    `gc.jsonl` one line per garbage collection of 1 ms or more and, with
+    ASKIISC_PROFILE=1, `profile.folded` the event loop's sampled stacks.
     """
 
     def __init__(self, run: Path, profile: bool) -> None:
@@ -1385,6 +1392,9 @@ class NodeTiming:
             time.time,
             lambda w: self._lags.write(dataclasses.asdict(w)),
         )
+        self._gc_rows = JsonLines(run / "gc.jsonl")
+        self._gc = GcPauses(time.perf_counter, time.time, self._gc_rows.write)
+        gc.callbacks.append(self._gc)
         self._stop = threading.Event()
         self._sampler: StackSampler | None = None
         if profile:
@@ -1407,8 +1417,11 @@ class NodeTiming:
         self._stop.set()
         if self._sampler is not None:
             (self._run / "profile.folded").write_text(self._sampler.folded())
+        if self._gc in gc.callbacks:
+            gc.callbacks.remove(self._gc)
         self._responses.close()
         self._lags.close()
+        self._gc_rows.close()
 
 
 def write_current(

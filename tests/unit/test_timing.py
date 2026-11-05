@@ -168,3 +168,19 @@ def test_rows_are_readable_before_close(tmp_path: Path) -> None:
     lines = (tmp_path / "responses.jsonl").read_text().splitlines()
     assert [json.loads(x)["n"] for x in lines] == [0, 1, 2]
     sink.close()
+
+
+def test_gc_pauses_record_long_collections_only() -> None:
+    from askiisc.observability.timing import GcPauses
+
+    t = [0.0]
+    rows: list[dict[str, object]] = []
+    pauses = GcPauses(lambda: t[0], lambda: 9.0, rows.append, min_ms=1.0)
+    pauses("stop", {})  # a stop without a start is ignored
+    pauses("start", {"generation": 0})
+    t[0] += 0.0005
+    pauses("stop", {"generation": 0, "collected": 1})
+    pauses("start", {"generation": 2})
+    t[0] += 0.25
+    pauses("stop", {"generation": 2, "collected": 7})
+    assert rows == [{"time": 9.0, "generation": 2, "ms": 250.0, "collected": 7}]
