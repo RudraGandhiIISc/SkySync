@@ -40,3 +40,28 @@ def test_workloads_cover_every_requirement() -> None:
     assert steps == [1, 2, 4, 8, 16]
     with pytest.raises(KeyError):
         plan("nope")
+
+
+def test_w1_has_the_prd_ramp_steady_and_drain() -> None:
+    stages = plan("w1").stages
+    assert [(s.seconds, s.users, s.drain) for s in stages] == [
+        (60, 60, False),
+        (600, 60, False),
+        (60, 60, True),
+    ]
+    assert all(s.classes == ("W1User",) for s in stages)
+
+
+def test_w2_is_w1_at_one_two_and_three_times() -> None:
+    stages = plan("w2").stages
+    steady = [s.users for s in stages if s.seconds == 600]  # noqa: PLR2004
+    assert steady == [60, 120, 180]
+    assert stages[-1].drain and stages[-1].users == 180  # noqa: PLR2004
+
+
+def test_w3_has_a_20x_peak_and_two_quiet_gaps() -> None:
+    users = [s.users for s in plan("w3").stages]
+    assert len(users) == 24 and plan("w3").seconds == 3600  # noqa: PLR2004
+    assert max(users) / sorted(users)[11] == 20  # noqa: PLR2004
+    zero = "".join("0" if n == 0 else "x" for n in users)
+    assert [len(g) for g in zero.split("x") if g] == [6, 2]

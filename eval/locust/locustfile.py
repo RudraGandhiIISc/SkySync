@@ -50,7 +50,11 @@ from eval.locust.client_log import (  # noqa: E402
     ClientRecord,
     citations_of,
 )
-from eval.locust.questions import FOLLOW_UPS, question_ids  # noqa: E402
+from eval.locust.questions import (  # noqa: E402
+    FOLLOW_UPS,
+    ZipfQuestions,
+    question_ids,
+)
 from eval.locust.workloads import WORKLOADS, plan, stage_at  # noqa: E402
 from eval.oracle.oracle import oracle_allows  # noqa: E402
 from eval.redteam import load_cases, planted_documents, verdict  # noqa: E402
@@ -387,6 +391,48 @@ class BurstUser(AskUser):
     def hammer(self) -> None:
         """Asks back to back."""
         self.ask(random.choice(ANSWERABLE)["question"], True, "burst question")
+
+
+W1_THINK_MEAN_S = 10.0
+W1_ZIPF_ALPHA = 1.1
+W1_REPEAT = 0.6
+W1_TENANTS = ("csa", "cds", "institute")
+W1_QUESTIONS = ZipfQuestions(
+    QUESTIONS, W1_ZIPF_ALPHA, W1_REPEAT, random.Random(252)
+)
+"""One generator for the whole run, so repeats are across users."""
+DRAINING = threading.Event()
+"""Set by the shape during a drain stage: no new questions start."""
+_next_tenant = itertools.count()
+
+
+def exponential(mean_s: float) -> Any:
+    """A Locust wait_time with exponential think time of mean `mean_s`."""
+    return lambda user: random.expovariate(1 / mean_s)
+
+
+class W1User(AskUser):
+    """PRD W1: 3 tenants, Exp(10 s) think, Zipf(1.1) held-out questions.
+
+    Users are spread evenly over the three departments, and each asks
+    single questions (temporary chats). W2 is this user at 1x, 2x and 3x;
+    W3 replays a day of it.
+    """
+
+    wait_time = exponential(W1_THINK_MEAN_S)
+
+    def on_start(self) -> None:
+        """Logs in as an account of the next department in turn."""
+        tenant = W1_TENANTS[next(_next_tenant) % len(W1_TENANTS)]
+        self.account_filter = lambda u: u["department"] == tenant
+        super().on_start()
+
+    @task
+    def question(self) -> None:
+        """Asks one question, unless the run is draining."""
+        if DRAINING.is_set():
+            return
+        self.ask(str(W1_QUESTIONS.draw()["question"]), True, "w1 question")
 
 
 class RepeatUser(AskUser):
@@ -881,6 +927,10 @@ class WorkloadShape(LoadTestShape):
         stage = stage_at(work, self.get_run_time())
         if stage is None:
             return None
+        if stage.drain:
+            DRAINING.set()
+        else:
+            DRAINING.clear()
         classes = [CLASSES[name] for name in stage.classes]
         fixed = sum(1 for c in classes if getattr(c, "fixed_count", 0))
         users = stage.users + fixed if stage.users else 0
@@ -1066,6 +1116,10 @@ def _on_stop(environment: Any, **_: Any) -> None:
         **{k: v for k, v in _row(total).items() if k not in ("name", "method")},
         "checks": dict(RESULTS.counts),
         "measurements": samples,
+        "w1_questions": {
+            "draws": W1_QUESTIONS.draws,
+            "repeat_rate": round(W1_QUESTIONS.repeat_rate(), 4),
+        },
         "by_request": [_row(e) for e in environment.stats.entries.values()],
         "errors": [
             {"name": e.name, "error": str(e.error), "count": e.occurrences}

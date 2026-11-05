@@ -23,6 +23,13 @@ from `peak` when it is given.
 | quality    | FR-1, NFR-7              | every held-out question once         |
 | auth       | security                 | bad logins, lockout, bad sessions    |
 | mixed      | demo                     | a realistic mix of everything        |
+| w1         | FR-7, NFR-1, E2          | PRD W1: 60 users, Exp(10 s) think    |
+| w2         | FR-6, E3, E4             | PRD W2: W1 at 1x, 2x and 3x          |
+| w3         | NFR-6, E3                | PRD W3: 24-hour trace, 24x faster    |
+
+W1 to W3 follow PRD section 7: a 60 s ramp, 10 minutes steady and a 60 s
+drain (users stop starting questions; open answers finish). The existing
+workloads are kept unchanged.
 """
 
 from __future__ import annotations
@@ -43,6 +50,8 @@ class Stage:
     users: int
     classes: tuple[str, ...]
     spawn_rate: float = 10.0
+    # Drain: users stay, but start no new question, so open answers finish.
+    drain: bool = False
 
 
 @dataclass(frozen=True)
@@ -113,6 +122,52 @@ def _diurnal(peak: int, scale: float) -> tuple[Stage, ...]:
     )
 
 
+W1_RAMP_S = 60.0
+W1_STEADY_S = 600.0
+W1_DRAIN_S = 60.0
+W2_MULTIPLES = (1, 2, 3)
+W3_HOUR_S = 3600 / 24
+"""One trace hour of W3 replayed 24x faster: 150 s."""
+W3_SHAPE = (0, 0, 0, 0, 0, 0, 1, 1, 2, 10, 20, 12, 2, 0, 0, 6, 8, 4, 2, 1,
+            1, 1, 1, 1)  # fmt: skip
+"""Users per trace hour, in twentieths of the peak. The median hour is 1,
+so the peak is 20x the median; 00:00 to 06:00 and 13:00 to 15:00 have no
+traffic (PRD W3: two multi-hour gaps)."""
+
+
+def _w1(peak: int, scale: float) -> tuple[Stage, ...]:
+    classes = ("W1User",)
+    return (
+        Stage(W1_RAMP_S * scale, peak, classes, max(1, peak / W1_RAMP_S)),
+        Stage(W1_STEADY_S * scale, peak, classes),
+        Stage(W1_DRAIN_S * scale, peak, classes, drain=True),
+    )
+
+
+def _w2(peak: int, scale: float) -> tuple[Stage, ...]:
+    classes = ("W1User",)
+    stages: list[Stage] = []
+    for k in W2_MULTIPLES:
+        rate = max(1, peak / W1_RAMP_S)
+        stages.append(Stage(W1_RAMP_S * scale, peak * k, classes, rate))
+        stages.append(Stage(W1_STEADY_S * scale, peak * k, classes))
+    last = peak * W2_MULTIPLES[-1]
+    stages.append(Stage(W1_DRAIN_S * scale, last, classes, drain=True))
+    return tuple(stages)
+
+
+def _w3(peak: int, scale: float) -> tuple[Stage, ...]:
+    return tuple(
+        Stage(
+            W3_HOUR_S * scale,
+            round(peak * level / max(W3_SHAPE)),
+            ("W1User",),
+            max(1, peak / W1_RAMP_S),
+        )
+        for level in W3_SHAPE
+    )
+
+
 def plan(name: str, peak: int = 0, scale: float = 1.0) -> Workload:
     """The stages of a workload.
 
@@ -175,6 +230,9 @@ WORKLOADS: dict[str, tuple[str, int, Builder]] = {
         30,
         _fixed(("ChatUser", "TemporaryUser", "RepeatUser", "ProbeUser"), 1800),
     ),
+    "w1": ("FR-7, NFR-1, E2", 60, _w1),
+    "w2": ("FR-6, E3, E4", 60, _w2),
+    "w3": ("NFR-6, E3", 60, _w3),
 }
 
 
