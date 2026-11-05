@@ -5,9 +5,12 @@
 #   on-rep1..3   W2 (W1 at 1x, 2x, 3x), ASKIISC_ADMISSION=on
 #   off-rep1..3  W2, ASKIISC_ADMISSION=off (requests queue without bound)
 # Each Locust run is turned into FR-6 numbers by eval/fr6_report.py.
-# At the end it submits the standing serving job again (STANDING_* below).
-# From the repo root, with no other serving stack up:
-#   sbatch slurm/fr6_stack.sh
+# From the repo root, with no other serving stack up; queue the standing
+# serving job behind it so it comes back however this job ends:
+#   J=$(sbatch --parsable slurm/fr6_stack.sh)
+#   sbatch --dependency=afterany:$J --partition=low_unl_1gpu --time=24:00:00 \
+#     --export=ALL,ASKIISC_MODEL=qwen3-8b-awq,ASKIISC_MAX_WORKERS=1,ASKIISC_RENEW=1,ASKIISC_RENEW_TIME=24:00:00 \
+#     slurm/serve.sh
 # Results: $ASKIISC_DATA/results/fr6/<job>/<part>/{serve,locust,report}
 #SBATCH --job-name=askiisc_fr6
 #SBATCH --partition=low_unl_1gpu
@@ -35,14 +38,7 @@ stop() {
   kill -USR1 "$SERVE" 2>/dev/null; kill -TERM "$SERVE" 2>/dev/null
   wait "$SERVE"; SERVE=""
 }
-restore() {
-  NEXT=$(sbatch --parsable --dependency=afterany:"$SLURM_JOB_ID" \
-    --partition=low_unl_1gpu --time=24:00:00 \
-    --export=ALL,ASKIISC_MODEL=qwen3-8b-awq,ASKIISC_MAX_WORKERS=1,ASKIISC_RENEW=1,ASKIISC_RENEW_TIME=24:00:00,ASKIISC_ADMISSION=on,ASKIISC_PROFILE=0,ASKIISC_RUN_DIR= \
-    slurm/serve.sh)
-  echo "standing serving job submitted again: $NEXT"
-}
-trap 'stop; restore; exit 1' TERM INT
+trap 'stop; exit 1' TERM INT
 
 # up <run dir>: start a stack with the current environment and wait for it.
 up() {
@@ -84,6 +80,5 @@ for p in $PARTS; do
       done ;;
   esac
 done
-restore
 echo "== FR-6 runs done, $failed part(s) failed ($(date +%T))"
 exit $(( failed > 0 ))
