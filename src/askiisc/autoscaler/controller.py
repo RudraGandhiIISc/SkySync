@@ -101,6 +101,10 @@ class Controller:
         """True if a worker can serve now."""
         return bool(self.ready_workers())
 
+    def ready_count(self) -> int:
+        """How many workers can serve now (recorded in each audit record)."""
+        return len(self.ready_workers())
+
     async def wait_ready(self, timeout_s: float) -> bool:
         """Waits until a worker is ready, or the timeout passes."""
         deadline = self._clock.now() + timeout_s

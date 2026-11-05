@@ -33,6 +33,7 @@ from askiisc.llm.prompts import (
     fit_context,
     retrieval_query,
 )
+from askiisc.observability.stages import StageTimer
 from askiisc.retrieval.search import Retriever, SearchResult
 from askiisc.retrieval.store import ScoredChunk
 from askiisc.retrieval.temporal import TimeScope, time_scope, without_time
@@ -247,6 +248,7 @@ class RagAnswerer:
         question: str,
         at: float | None = None,
         history: Sequence[Message] = (),
+        timer: StageTimer | None = None,
     ) -> Prepared:
         """Retrieves chunks and builds the prompt.
 
@@ -255,6 +257,8 @@ class RagAnswerer:
             question: The question.
             at: As-of time; None means now.
             history: Earlier turns of a chat, oldest first.
+            timer: The request's stage timer (access, embed, search and
+                rerank are added to it), if it keeps one.
 
         Raises:
             AccessDenied: If the access service cannot answer.
@@ -264,7 +268,7 @@ class RagAnswerer:
         scope = TimeScope((at,)) if at is not None else time_scope(query, now)
         text = without_time(query) if scope.label else query
         results = [
-            await self._retriever.search(token, text, instant)
+            await self._search(token, text, instant, timer)
             for instant in scope.instants
         ]
         chunks = fit_context([hit.chunk for hit in merge_hits(results)])
@@ -276,6 +280,19 @@ class RagAnswerer:
             policy_version=results[-1].policy_version,
             at=results[-1].at,
         )
+
+    async def _search(
+        self,
+        token: str,
+        text: str,
+        at: float | None,
+        timer: StageTimer | None,
+    ) -> SearchResult:
+        # Without a timer the call keeps its three-argument form, which
+        # any retriever (and the simple test recorders) accepts.
+        if timer is None:
+            return await self._retriever.search(token, text, at)
+        return await self._retriever.search(token, text, at, timer)
 
     def generate(
         self, prepared: Prepared, cache_salt: str | None = None

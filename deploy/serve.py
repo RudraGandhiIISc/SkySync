@@ -1204,6 +1204,7 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
         audit_salt=salt,
         metrics=metrics,
         workers=controller,
+        ready_workers=controller.ready_count,
         generation=lambda: live.generation[0],
         max_cold_hold_s=settings.max_cold_hold_s,
         on_request=requests.record,

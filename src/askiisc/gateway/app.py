@@ -6,6 +6,7 @@ cold-start hold -> fair queue -> LLM stream -> output filter -> audit.
 Events: `warming` (a GPU worker is starting), `token` (answer text),
 `answer` (final text and citations; replaces the streamed text),
 `error`. Rejections before streaming use HTTP 401, 403, 413 and 429.
+Every response carries `X-Request-Id`, the id of its audit record (FR-12).
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ from askiisc.gateway.audit import (
     AuditSink,
     Decision,
     DocVersion,
+    LatencyBreakdown,
     salted_hash,
 )
 from askiisc.gateway.auth import Authenticator, Caller
@@ -58,6 +60,9 @@ from askiisc.gateway.limits import Admission, Ticket
 from askiisc.gateway.output_filter import filter_answer
 from askiisc.llm.rag import Prepared, RagAnswerer
 from askiisc.observability.metrics import GatewayMetrics
+from askiisc.observability.stages import StageTimer
+
+REQUEST_ID_HEADER = "X-Request-Id"
 
 
 class WorkerStatus(Protocol):
@@ -157,6 +162,17 @@ class GatewayDeps:
     debug_retrieval: bool = False
     new_id: Callable[[], str] = lambda: uuid.uuid4().hex
     on_request: Callable[[RequestEvent], None] | None = None
+    # Seconds from a monotonic clock, for latencies (a fake in tests).
+    monotonic: Callable[[], float] = time.perf_counter
+    # Ready GPU workers now (the autoscaler's count); None means 1 when
+    # `workers.ready()` and 0 otherwise.
+    ready_workers: Callable[[], int] | None = None
+
+    def ready_count(self) -> int:
+        """Ready GPU workers at this moment."""
+        if self.ready_workers is not None:
+            return self.ready_workers()
+        return 1 if self.workers.ready() else 0
 
 
 # Request limits on history; the prompt uses less (llm/prompts.py).
@@ -189,7 +205,19 @@ def sse(event: str, payload: object) -> bytes:
 
 
 def _error(status: int, message: str, **headers: str) -> Response:
+    request_id = REQUEST_ID.get()
+    if request_id:
+        headers = {REQUEST_ID_HEADER: request_id, **headers}
     return JSONResponse({"error": message}, status_code=status, headers=headers)
+
+
+@dataclass
+class _Arrival:
+    """What is known about a request from its arrival on."""
+
+    started: float
+    timer: StageTimer
+    active_workers: int
 
 
 def create_app(deps: GatewayDeps) -> FastAPI:
@@ -243,17 +271,20 @@ async def ask(
 async def _ask(
     deps: GatewayDeps, body: AskRequest, header: str | None, origin: Origin
 ) -> Response:
-    started = time.perf_counter()
+    arrival = _Arrival(
+        deps.monotonic(), StageTimer(deps.monotonic), deps.ready_count()
+    )
     # Every call this request makes (access, embed, vLLM) carries this id.
     REQUEST_ID.set(deps.new_id())
 
     def reject(caller: Caller, decision: Decision, status: int) -> None:
-        _Session(deps, caller, body, None, None, started, origin).audit(
+        _Session(deps, caller, body, None, None, arrival, origin).audit(
             decision, status
         )
 
     try:
-        caller = deps.auth.authenticate(header)
+        with arrival.timer.measure("auth"):
+            caller = deps.auth.authenticate(header)
     except AuthError:
         reject(ANONYMOUS, "rejected", 401)
         return _error(401, "invalid or missing token")
@@ -273,13 +304,18 @@ async def _ask(
         retry = str(max(1, math.ceil(err.retry_after_s)))
         return _error(429, "busy, retry later", **{"Retry-After": retry})
     try:
-        allowed = await deps.access.filter(caller.token, body.as_of)
+        with arrival.timer.measure("access"):
+            allowed = await deps.access.filter(caller.token, body.as_of)
     except AccessDenied:
         deps.admission.release(ticket, completed=False)
         reject(caller, "denied", 403)
         return _error(403, "access check failed")
-    session = _Session(deps, caller, body, ticket, allowed, started, origin)
-    return StreamingResponse(session.events(), media_type="text/event-stream")
+    session = _Session(deps, caller, body, ticket, allowed, arrival, origin)
+    return StreamingResponse(
+        session.events(),
+        media_type="text/event-stream",
+        headers={REQUEST_ID_HEADER: session.request_id},
+    )
 
 
 ANONYMOUS = Caller(
@@ -299,10 +335,12 @@ class _Session:
         body: AskRequest,
         ticket: Ticket | None,
         allowed: AccessFilter | None,
-        started: float,
+        arrival: _Arrival,
         origin: Origin,
     ) -> None:
         self.deps = deps
+        self.timer = arrival.timer
+        self.active_workers = arrival.active_workers
         self.origin = origin
         self.ttft: float | None = None
         self.cold_hold = False
@@ -310,7 +348,7 @@ class _Session:
         self.body = body
         self.ticket = ticket
         self.allowed = allowed
-        self.started = started
+        self.started = arrival.started
         self.request_id = REQUEST_ID.get() or deps.new_id()
         self.prepared: Prepared | None = None
         self.answer: Answer | None = None
@@ -366,6 +404,7 @@ class _Session:
             self.body.question,
             self.body.as_of,
             [t.model_dump() for t in self.body.history],
+            self.timer,
         )
         if self.prepared.needs_llm:
             async for event in self._hold_for_worker():
@@ -373,9 +412,10 @@ class _Session:
             async for event in self._generate():
                 yield event
         answer = rag.finish(self.prepared)
-        result = await filter_answer(
-            self.deps.access, self.caller.token, answer
-        )
+        with self.timer.measure("filter"):
+            result = await filter_answer(
+                self.deps.access, self.caller.token, answer
+            )
         self.answer = result.answer
         if not result.withheld:
             await self._store()
@@ -416,7 +456,9 @@ class _Session:
                 "max_wait_s": self.deps.max_cold_hold_s,
             },
         )
-        if not await workers.wait_ready(self.deps.max_cold_hold_s):
+        with self.timer.measure("cold_hold"):
+            ready = await workers.wait_ready(self.deps.max_cold_hold_s)
+        if not ready:
             raise AskIIScError("cold start took too long")
 
     async def _generate(self) -> AsyncIterator[bytes]:
@@ -425,23 +467,32 @@ class _Session:
         prompt = sum(len(m["content"].split()) for m in self.prepared.messages)
         dispatcher, metrics = self.deps.dispatcher, self.deps.metrics
         metrics.queue_depth.set(dispatcher.waiting + 1)
-        await dispatcher.acquire(self.caller.tenant, prompt + LLM_MAX_TOKENS)
+        with self.timer.measure("queue"):
+            await dispatcher.acquire(
+                self.caller.tenant, prompt + LLM_MAX_TOKENS
+            )
         metrics.queue_depth.set(dispatcher.waiting)
+        mark = self.timer.now()
         try:
-            first = True
             async for piece in self.deps.rag.generate(
                 self.prepared, self.caller.tenant
             ):
-                if first:
-                    self.ttft = time.perf_counter() - self.started
-                    metrics.ttft.labels(self.caller.tenant).observe(self.ttft)
-                    metrics.origin_ttft.labels(self.origin.label).observe(
-                        self.ttft
-                    )
-                    first = False
+                if self.ttft is None:
+                    self._first_token(mark)
+                    mark = self.timer.now()
                 yield sse("token", {"text": piece})
         finally:
             dispatcher.release()
+            stage = "first_token" if self.ttft is None else "generation"
+            self.timer.add(stage, self.timer.now() - mark)
+
+    def _first_token(self, dispatched: float) -> None:
+        now = self.timer.now()
+        self.timer.add("first_token", now - dispatched)
+        self.ttft = now - self.started
+        metrics, tenant = self.deps.metrics, self.caller.tenant
+        metrics.ttft.labels(tenant).observe(self.ttft)
+        metrics.origin_ttft.labels(self.origin.label).observe(self.ttft)
 
     def _answer_event(self) -> bytes:
         answer = self.answer or Answer(text="", abstained=True)
@@ -468,7 +519,7 @@ class _Session:
     def _finish_metrics(self, decision: Decision) -> None:
         tenant, metrics = self.caller.tenant, self.deps.metrics
         metrics.requests.labels(tenant, decision).inc()
-        seconds = time.perf_counter() - self.started
+        seconds = self.deps.monotonic() - self.started
         metrics.latency.labels(tenant).observe(seconds)
         metrics.origin_latency.labels(self.origin.label).observe(seconds)
         if self.prepared is not None:
@@ -500,7 +551,7 @@ class _Session:
             ]
             chunk_ids = self._cached.chunk_ids
         now = deps.clock.now()
-        latency_ms = (time.perf_counter() - self.started) * 1e3
+        latency_ms = (deps.monotonic() - self.started) * 1e3
         deps.metrics.by_origin.labels(
             self.origin.label, self.origin.source, decision
         ).inc()
@@ -550,6 +601,11 @@ class _Session:
                 latency_ms=latency_ms,
                 cache_hit=self.cache_hit,
                 stale=self._stale(),
+                active_workers=self.active_workers,
+                cold_start=self.cold_hold,
+                latency=LatencyBreakdown.from_stages(
+                    self.timer.totals(), latency_ms
+                ),
             )
         )
 

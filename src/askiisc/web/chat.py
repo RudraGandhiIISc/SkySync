@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from askiisc.common.errors import AccessDenied, NotFound
 from askiisc.common.targets import CHAT_HISTORY_MESSAGES
 from askiisc.gateway.app import (
+    REQUEST_ID_HEADER,
     TURN_MAX_CHARS,
     AskRequest,
     Origin,
@@ -227,7 +228,15 @@ def relay(web: WebDeps, response: Response, on_answer: OnAnswer) -> Response:
                 if saved is not None:
                     yield sse("saved", saved)
 
-    return StreamingResponse(events(), media_type="text/event-stream")
+    # The audit record's id (FR-12) travels with the relayed stream.
+    headers = (
+        {REQUEST_ID_HEADER: response.headers[REQUEST_ID_HEADER]}
+        if REQUEST_ID_HEADER in response.headers
+        else None
+    )
+    return StreamingResponse(
+        events(), media_type="text/event-stream", headers=headers
+    )
 
 
 def chat_router(  # noqa: PLR0915 - one route table

@@ -27,6 +27,7 @@ from askiisc.common.targets import (
     RERANK_CANDIDATES,
     RERANK_PASSAGE_CHARS,
 )
+from askiisc.observability.stages import StageTimer
 from askiisc.retrieval.embedder import Embedder
 from askiisc.retrieval.rerank import Reranker, RerankError
 from askiisc.retrieval.store import ChunkIndex, ScoredChunk
@@ -51,7 +52,9 @@ class Retriever:
     keyword search gets the question as asked. `executor` runs the index
     searches on their own threads, so searches waiting for the index never
     hold the threads that logins and chat storage need (None: the default
-    pool).
+    pool). `monotonic` times the stages (time.perf_counter unless a test
+    injects a fake); each stage goes to `observe` and, when the caller
+    passes one, to the request's StageTimer.
     """
 
     def __init__(
@@ -66,6 +69,7 @@ class Retriever:
         executor: Executor | None = None,
         reranker: Reranker | None = None,
         candidates: int = RERANK_CANDIDATES,
+        monotonic: Callable[[], float] = time.perf_counter,
     ) -> None:
         self._access = access
         self._embedder = embedder
@@ -77,9 +81,26 @@ class Retriever:
         self._executor = executor
         self._reranker = reranker
         self._candidates = max(candidates, top_k)
+        self._monotonic = monotonic
+
+    def _now(self, timer: StageTimer | None) -> float:
+        # A request's stages all use its timer's clock.
+        return self._monotonic() if timer is None else timer.now()
+
+    def _done(
+        self, stage: str, started: float, timer: StageTimer | None
+    ) -> None:
+        seconds = self._now(timer) - started
+        self._observe(stage, seconds)
+        if timer is not None:
+            timer.add(stage, seconds)
 
     async def search(
-        self, token: str, query: str, at: float | None = None
+        self,
+        token: str,
+        query: str,
+        at: float | None = None,
+        timer: StageTimer | None = None,
     ) -> SearchResult:
         """Finds the best chunks the user may read.
 
@@ -87,6 +108,7 @@ class Retriever:
             token: The user's verified SSO token.
             query: The question.
             at: As-of time; None means now.
+            timer: The request's stage timer, if it keeps one.
 
         Returns:
             Up to top_k hits, best first.
@@ -94,16 +116,18 @@ class Retriever:
         Raises:
             AccessDenied: If the access service cannot answer.
         """
-        started = time.perf_counter()
-        allowed = await self._access.filter(token, at)
-        self._observe("access", time.perf_counter() - started)
+        started = self._now(timer)
+        try:
+            allowed = await self._access.filter(token, at)
+        finally:
+            self._done("access", started, timer)
         when = self._clock.now() if at is None else at
         if not allowed.doc_ids:
             return SearchResult((), allowed.policy_version, when)
-        started = time.perf_counter()
+        started = self._now(timer)
         vector = (await self._embedder.embed([self._query_prefix + query]))[0]
-        self._observe("embed", time.perf_counter() - started)
-        started = time.perf_counter()
+        self._done("embed", started, timer)
+        started = self._now(timer)
         search = functools.partial(
             self._index.search,
             vector,
@@ -114,23 +138,25 @@ class Retriever:
         )
         loop = asyncio.get_running_loop()
         hits = await loop.run_in_executor(self._executor, search)
-        self._observe("search", time.perf_counter() - started)
-        hits = await self._rerank(query, hits)
+        self._done("search", started, timer)
+        hits = await self._rerank(query, hits, timer)
         return SearchResult(tuple(hits), allowed.policy_version, when)
 
     async def _rerank(
-        self, query: str, hits: list[ScoredChunk]
+        self, query: str, hits: list[ScoredChunk], timer: StageTimer | None
     ) -> list[ScoredChunk]:
         """The top_k hits by cross-encoder score (search order on failure)."""
         if self._reranker is None or len(hits) < 2:  # noqa: PLR2004
             return hits[: self._top_k]
-        started = time.perf_counter()
+        started = self._now(timer)
         texts = [h.chunk.text[:RERANK_PASSAGE_CHARS] for h in hits]
         try:
             scores = await self._reranker.scores(query, texts)
         except RerankError as err:
             LOG.warning("reranking failed, search order kept: %s", err)
+            if timer is not None:
+                timer.add("rerank", timer.now() - started)
             return hits[: self._top_k]
-        self._observe("rerank", time.perf_counter() - started)
+        self._done("rerank", started, timer)
         order = sorted(range(len(hits)), key=lambda i: -scores[i])
         return [hits[i] for i in order[: self._top_k]]
