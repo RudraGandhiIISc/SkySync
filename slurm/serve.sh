@@ -57,7 +57,9 @@ fi
 export ASKIISC_EMBED_DEVICE=${ASKIISC_EMBED_DEVICE:-cuda}
 echo "GPUs for this job: $ASKIISC_GPUS (embedding on $ASKIISC_EMBED_DEVICE)"
 STATE=$ASKIISC_STATE_DIR
-RUN_DIR="$ASKIISC_DATA/results/serve/$SLURM_JOB_ID"
+# A driver that starts several stacks in one job (slurm/fr6_stack.sh) gives
+# each its own folder.
+RUN_DIR=${ASKIISC_RUN_DIR:-"$ASKIISC_DATA/results/serve/$SLURM_JOB_ID"}
 mkdir -p "$RUN_DIR" "$ASKIISC_DATA/run"
 
 uv run python -m deploy.serve --run-dir "$RUN_DIR" \
