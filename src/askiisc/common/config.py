@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     # every request, which then queues without bound; it exists only for
     # the E4 arm that shows the collapse.
     admission: bool = True
+    # Fair queueing between departments for LLM slots (FR-11;
+    # ASKIISC_FAIR_QUEUE=off gives one first-come queue, the E4 arm).
+    fair_queue: bool = True
+    # The answer cache (ASKIISC_ANSWER_CACHE=off sends every request to
+    # vLLM, for the FR-7 prefix-cache experiment).
+    answer_cache: bool = True
     # Sample the event loop's Python stacks to profile.folded (FR-6
     # diagnosis; ASKIISC_PROFILE=1). Off in normal serving.
     profile: bool = False

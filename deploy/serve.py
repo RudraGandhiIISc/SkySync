@@ -62,7 +62,7 @@ from askiisc.gateway.app import GatewayDeps
 from askiisc.gateway.app import create_app as create_gateway
 from askiisc.gateway.audit import FileAuditSink
 from askiisc.gateway.auth import Authenticator
-from askiisc.gateway.cache import InMemoryAnswerCache
+from askiisc.gateway.cache import InMemoryAnswerCache, NullAnswerCache
 from askiisc.gateway.drr import FairDispatcher
 from askiisc.gateway.limits import Admission
 from askiisc.ingest.corpus import CorpusDoc, public_rows, read_titles
@@ -1142,7 +1142,9 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
         http, access_url, clock, timeout_s=settings.access_timeout_s
     )
     slots = settings.llm_concurrency
-    dispatcher = FairDispatcher(capacity=slots, quantum=2048)
+    dispatcher = FairDispatcher(
+        capacity=slots, quantum=2048, fair=settings.fair_queue
+    )
     pool = make_pool(settings, paths.run, http)
     controller = make_controller(
         pool,
@@ -1218,7 +1220,9 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
             enabled=settings.admission,
         ),
         dispatcher=dispatcher,
-        cache=InMemoryAnswerCache(clock),
+        cache=InMemoryAnswerCache(clock)
+        if settings.answer_cache
+        else NullAnswerCache(),
         audit=FileAuditSink(paths.run / "audit.jsonl"),
         audit_salt=salt,
         metrics=metrics,

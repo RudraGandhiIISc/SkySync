@@ -71,12 +71,23 @@ class DeficitRoundRobin(Generic[T]):
         return len(self._queues.get(tenant, ()))
 
 
-class FairDispatcher:
-    """Grants `capacity` concurrent slots in DRR order."""
+FIFO = TenantId("*")
+"""The one queue every request joins when fair queueing is off."""
 
-    def __init__(self, capacity: int, quantum: float) -> None:
+
+class FairDispatcher:
+    """Grants `capacity` concurrent slots in DRR order.
+
+    With `fair=False` (ASKIISC_FAIR_QUEUE=off, the E4 arm) every request
+    joins one queue, so slots go first come, first served.
+    """
+
+    def __init__(
+        self, capacity: int, quantum: float, fair: bool = True
+    ) -> None:
         if capacity < 1:
             raise ValueError("capacity must be at least 1")
+        self._fair = fair
         self._free = capacity
         self._capacity = capacity
         self._drr: DeficitRoundRobin[asyncio.Future[None]] = DeficitRoundRobin(
@@ -103,7 +114,7 @@ class FairDispatcher:
         future: asyncio.Future[None] = (
             asyncio.get_running_loop().create_future()
         )
-        self._drr.enqueue(tenant, future, cost)
+        self._drr.enqueue(tenant if self._fair else FIFO, future, cost)
         self._dispatch()
         try:
             await future
