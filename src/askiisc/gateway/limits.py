@@ -12,11 +12,21 @@ always admitted, so a quiet department is never locked out by a busy one
 (the total can exceed the capacity by at most one request per tenant); a
 tenant at its share is refused while others are active or the server is
 full.
+
+Pool-aware wait (FR-6, FR-10): the wait estimate divides by the LLM slots
+of the GPU workers ready now (`concurrency` slots per worker, times
+`ready_workers()`). With no ready worker the wait is not estimated: the
+request goes on to the cold-start hold, which bounds it, so an empty pool
+never causes a refusal by itself.
+
+With `enabled=False` (ASKIISC_ADMISSION=off, the E4 arm) every request is
+admitted and queues without bound.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from askiisc.common.clock import Clock
@@ -83,7 +93,26 @@ class Admission:
         concurrency: int,
         service_estimate_s: float = 1.0,
         max_in_flight: int | None = None,
+        ready_workers: Callable[[], int] | None = None,
+        enabled: bool = True,
     ) -> None:
+        """Creates admission control.
+
+        Args:
+            clock: Time source.
+            rate_per_s: Token-bucket rate per tenant.
+            burst: Token-bucket size per tenant.
+            queue_max: Most unfinished requests per tenant.
+            max_wait_s: Longest estimated wait admitted.
+            concurrency: LLM slots per ready worker (all slots when
+                `ready_workers` is None).
+            service_estimate_s: First guess of a request's duration.
+            max_in_flight: The gateway's capacity, shared fairly between
+                tenants (None: no capacity check).
+            ready_workers: Ready GPU workers now (None: the slots do not
+                depend on the pool).
+            enabled: False admits everything (no limits at all).
+        """
         self._clock = clock
         self._rate = rate_per_s
         self._burst = burst
@@ -92,6 +121,8 @@ class Admission:
         self._concurrency = concurrency
         self._service_s = service_estimate_s
         self._capacity = max_in_flight
+        self._ready = ready_workers
+        self._enabled = enabled
         self._buckets: dict[TenantId, TokenBucket] = {}
         self._depth: defaultdict[TenantId, int] = defaultdict(int)
 
@@ -102,11 +133,24 @@ class Admission:
             )
         return self._buckets[tenant]
 
+    def slots(self) -> int:
+        """LLM slots of the workers ready now."""
+        if self._ready is None:
+            return self._concurrency
+        return self._concurrency * max(0, self._ready())
+
     def estimated_wait_s(self) -> float:
-        """Expected queueing delay for a request admitted now."""
+        """Expected queueing delay for a request admitted now.
+
+        Returns:
+            Seconds; 0 when no worker is ready (the cold hold bounds it).
+        """
+        slots = self.slots()
+        if slots == 0:
+            return 0.0
         in_system = sum(self._depth.values())
-        waiting = max(0, in_system + 1 - self._concurrency)
-        return waiting * self._service_s / self._concurrency
+        waiting = max(0, in_system + 1 - slots)
+        return waiting * self._service_s / slots
 
     def share(self, tenant: TenantId) -> int | None:
         """The tenant's fair share of the capacity now (None: no capacity)."""
@@ -135,6 +179,9 @@ class Admission:
         Raises:
             RateLimited: If any limit would be exceeded.
         """
+        if not self._enabled:
+            self._depth[tenant] += 1
+            return Ticket(tenant, self._clock.now())
         if self._depth[tenant] >= self._queue_max:
             raise RateLimited("tenant queue full", self._max_wait)
         if self._over_share(tenant):

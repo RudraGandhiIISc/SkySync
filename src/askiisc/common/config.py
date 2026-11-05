@@ -49,6 +49,13 @@ class Settings(BaseSettings):
     # (FR-6). One Python process serves about 11 requests/s (2026-10-26);
     # 24 in flight keeps p95 near 3 s. Shared fairly between departments.
     max_in_flight: int = Field(default=24, gt=0)
+    # Admission control on or off (ASKIISC_ADMISSION=on|off). Off admits
+    # every request, which then queues without bound; it exists only for
+    # the E4 arm that shows the collapse.
+    admission: bool = True
+    # Sample the event loop's Python stacks to profile.folded (FR-6
+    # diagnosis; ASKIISC_PROFILE=1). Off in normal serving.
+    profile: bool = False
 
     # Retrieval.
     top_k: int = targets.PROMPT_TOP_K
