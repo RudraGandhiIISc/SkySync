@@ -9,9 +9,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import threading
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Literal, Protocol, TextIO
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -177,20 +177,49 @@ class InMemoryAuditSink:
         self.records.append(record)
 
 
-class FileAuditSink:
-    """Appends JSON lines to a file, one record per line."""
+def _append(path: Path) -> TextIO:
+    return path.open("a", encoding="utf-8")
 
-    def __init__(self, path: Path) -> None:
+
+class FileAuditSink:
+    """Appends JSON lines to a file, one record per line.
+
+    The file is opened once and kept open: each record is written and
+    flushed to the operating system, but never closed per record. On the
+    NFS drive a close waits for the server, and closing once per record
+    stalled the gateway's event loop under load (FR-6 profile, run 2117).
+    """
+
+    def __init__(
+        self, path: Path, opener: Callable[[Path], TextIO] = _append
+    ) -> None:
+        """Creates the sink.
+
+        Args:
+            path: The audit file.
+            opener: Opens the file for appending (a fake in tests).
+        """
         self._path = path
+        self._opener = opener
+        self._file: TextIO | None = None
         self._lock = threading.Lock()
         path.parent.mkdir(parents=True, exist_ok=True)
 
     def write(self, record: AuditRecord) -> None:
-        """Appends a record and flushes it."""
+        """Appends a record and flushes it to the operating system."""
         line = record.model_dump_json() + "\n"
-        with self._lock, self._path.open("a", encoding="utf-8") as f:
-            f.write(line)
-            f.flush()
+        with self._lock:
+            if self._file is None:
+                self._file = self._opener(self._path)
+            self._file.write(line)
+            self._file.flush()
+
+    def close(self) -> None:
+        """Closes the file (a later write opens it again)."""
+        with self._lock:
+            if self._file is not None:
+                self._file.close()
+                self._file = None
 
     def read(self) -> list[AuditRecord]:
         """Reads every record back."""

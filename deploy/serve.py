@@ -1185,6 +1185,7 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
         if settings.rerank_model
         else None
     )
+    audit = FileAuditSink(paths.run / "audit.jsonl")
     deps = GatewayDeps(
         clock=clock,
         auth=Authenticator(issuer.verifier(clock), directory),
@@ -1223,7 +1224,7 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
         cache=InMemoryAnswerCache(clock)
         if settings.answer_cache
         else NullAnswerCache(),
-        audit=FileAuditSink(paths.run / "audit.jsonl"),
+        audit=audit,
         audit_salt=salt,
         metrics=metrics,
         workers=controller,
@@ -1349,6 +1350,7 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
         write_targets(paths, pool)
         write_workers(paths.run / "workers.json", pool.history)
         timing.close()
+        audit.close()
         requests.close()
         await web.access_http.aclose()
         search_pool.shutdown(wait=False, cancel_futures=True)
