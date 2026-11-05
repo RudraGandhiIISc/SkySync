@@ -1,6 +1,6 @@
 # Status
 
-Where Ask IISc stands on 2026-11-03, what was measured, how it differs from
+Where Ask IISc stands on 2026-11-05, what was measured, how it differs from
 the PRD, and what is left. Every number comes from a Slurm log or a results
 file under `/data4/muthangiv/askiisc/results/`.
 
@@ -16,7 +16,7 @@ file under `/data4/muthangiv/askiisc/results/`.
   restricted test documents; 574,672 chunks.
 - **Answer quality:** Qwen3-8B answers 84.5% of 400 edition-aware
   questions correctly, citations 97.7% correct (NFR-7: 80% and 90%).
-- **Quality gate:** green on 2026-10-27: format, lint, mypy --strict, 930
+- **Quality gate:** green on 2026-11-05 (job 2098): format, lint, mypy --strict, 1,038
   unit and conformance tests (coverage above 97%), integration, e2e,
   security, regression.
 - **Live check** (serving job 1794, 2026-10-27): every chat and admin
@@ -44,7 +44,7 @@ Measured in the live-v2 round (2026-10-26, Qwen3-4B, 8 chunks:
 | FR-8 six models | pass | six models (section 4) through one client, switched by `ASKIISC_MODEL` only; all six measured 2026-11-03 ([results/fr8](results/fr8/README.md)) |
 | FR-9, FR-10 scaling, scale to zero | pass | 2 workers in 74 s, never above 2, back to 0 61 s after idle |
 | FR-11 fairness | **open** | quiet department 33% (≥ 20% met); busy department 67% (≤ 55% not met) |
-| FR-12 audit | pass | baseline-v1 |
+| FR-12 audit | pass (2026-11-05) | v3: 2,633 of 2,633 requests audited, 1,940 of 1,940 citations reproduced, 0 question strings in the store; latency breakdown per stage ([results/v3/FR-12](results/v3/FR-12/README.md), run 2099/2100, shared GPU) |
 | NFR-1 latency | **open** with 8B | Qwen3-8B, 12 chunks, `steady` 60 users (job 1818, 2026-10-27): p95 total 4.0 s, first token 1.7 s; embedding (p95 0.64 s) and reranking (0.88 s) before the model, vLLM's own first token 0.38 s |
 | NFR-2 cold start | pass | Qwen3-8B: worst first token 34.7 s (job 1819) |
 | NFR-3 throughput | pass | 5,195 tokens/s at concurrency 64 (4B) |
@@ -111,6 +111,14 @@ What moved it from 63% (same pipeline on the uncleaned corpus):
 
 ## 6. Next steps
 
+0. **Chat-app 503s under load (open, NFR-4).** In run 2090 (`steady`, one
+   worker, shared GPU) 30 of 2,493 client requests (1.2%) got HTTP 503:
+   the chat app's access check for the chat history timed out and it
+   refused, failing closed. They are now audited
+   (`reason=access_check_timeout`), but 1.2% is above NFR-4's 1% error
+   limit; to be measured again in Phase 8. Fail-closed behaviour is not
+   changed. Source:
+   `/data4/muthangiv/askiisc/results/locust/2090-steady/client_requests.jsonl`.
 1. **Re-measure NFR-1 and NFR-6** with Qwen3-8B: `sbatch slurm/serve.sh`,
    then `sbatch slurm/loadtest.sh steady` and `diurnal`.
 2. **FR-6:** several gateway processes behind one port, with admission

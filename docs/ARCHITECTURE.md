@@ -92,8 +92,10 @@ the session cookie and the `X-AskIISc: 1` header:
     or whose content words are mostly absent from the chunks it cites
     (under 30%: outside knowledge) becomes the refusal; links not in a cited chunk and HTML are removed;
     every cited document is re-authorised.
-12. **Record**: an audit line of hashes (no text), a request-log row (user,
-    outcome, timings, documents; no text), Prometheus metrics.
+12. **Record**: an audit line of hashes (no text) with the ready workers,
+    a cold-start flag, a refusal reason and milliseconds per stage, named
+    by the response's `X-Request-Id`; a request-log row (user, outcome,
+    timings, documents; no text); Prometheus metrics.
 
 ## 3. How a document gets into the index
 

@@ -341,5 +341,8 @@ JSON files rather than the UI.
 | Slow everything | SQLite must be on local disk (`databases in /data2/scratch/...` in the log); `OMP_NUM_THREADS` set by `serve.sh` |
 
 Run logs: `/data4/muthangiv/askiisc/results/serve/<job>/` (`access.log`,
-`embed.log`, `vllm-N.log`, `requests.log`, `audit.jsonl`, Prometheus,
-Grafana, Loki, Locust logs).
+`embed.log`, `vllm-N.log`, `requests.log`, `audit.jsonl`, `workers.json`
+(each worker's lifecycle and its card's free memory and sharing at start),
+Prometheus, Grafana, Loki, Locust logs). Check a load run's audit store
+with `python -m eval.audit_check` (FR-12; see
+[results/v3/FR-12](results/v3/FR-12/README.md)).
