@@ -864,8 +864,12 @@ async def background(
                 )
             live.gpus = gpus
             await read_workers(live, http, web.clock.now())
-            write_targets(paths, live.pool)
-            write_workers(paths.run / "workers.json", live.pool.history)
+            # Off the event loop: on the NFS drive a write and rename can
+            # take hundreds of ms (FR-6 profile, run 2123).
+            await asyncio.to_thread(write_targets, paths, live.pool)
+            await asyncio.to_thread(
+                write_workers, paths.run / "workers.json", live.pool.history
+            )
             now = web.clock.now()
             web.m.sessions.set(
                 await asyncio.to_thread(web.store.live_sessions, now)

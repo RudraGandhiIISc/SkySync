@@ -49,8 +49,9 @@ class JsonLines:
         self._file: TextIO = path.open("a", encoding="utf-8")
 
     def write(self, row: dict[str, Any]) -> None:
-        """Writes one row."""
+        """Writes one row and flushes it (readable while the run goes on)."""
         self._file.write(json.dumps(row, separators=(",", ":")) + "\n")
+        self._file.flush()
 
     def close(self) -> None:
         """Flushes and closes the file."""

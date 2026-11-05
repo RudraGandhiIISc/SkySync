@@ -157,3 +157,14 @@ def test_sampler_counts_a_threads_stacks() -> None:
     missing = StackSampler(dict, me, 0.001, stop)
     missing.sample()
     assert not missing.counts
+
+
+def test_rows_are_readable_before_close(tmp_path: Path) -> None:
+    # Regression (run 2123): the FR-6 report read responses.jsonl while the
+    # stack was up and saw only the rows already flushed.
+    sink = JsonLines(tmp_path / "responses.jsonl")
+    for n in range(3):
+        sink.write({"n": n})
+    lines = (tmp_path / "responses.jsonl").read_text().splitlines()
+    assert [json.loads(x)["n"] for x in lines] == [0, 1, 2]
+    sink.close()
