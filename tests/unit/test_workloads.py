@@ -65,3 +65,25 @@ def test_w3_has_a_20x_peak_and_two_quiet_gaps() -> None:
     assert max(users) / sorted(users)[11] == 20  # noqa: PLR2004
     zero = "".join("0" if n == 0 else "x" for n in users)
     assert [len(g) for g in zero.split("x") if g] == [6, 2]
+
+
+def _registered() -> set[str]:
+    tree = ast.parse(Path("eval/locust/locustfile.py").read_text())
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Assign)
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == "CLASSES"
+        ):
+            return {
+                n.id for n in ast.walk(node.value) if isinstance(n, ast.Name)
+            }
+    return set()
+
+
+@pytest.mark.parametrize("name", sorted(WORKLOADS))
+def test_every_workload_class_is_registered_for_the_shape(name: str) -> None:
+    # Regression (FR-6 run 2126): W1User was defined but missing from
+    # CLASSES, so the shape failed with KeyError and w2 never ran.
+    for stage in plan(name).stages:
+        assert set(stage.classes) <= _registered()

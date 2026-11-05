@@ -1113,7 +1113,8 @@ CLASSES = {
     for c in (
         ChatUser, TemporaryUser, BurstUser, RepeatUser, HeavyTenantUser,
         LightTenantUser, ProbeUser, RevocationUser, RevisionUser, RedTeamUser,
-        ChaosUser, QualityUser, AuthAbuseUser,
+        ChaosUser, QualityUser, AuthAbuseUser, W1User, ScriptedRevocationUser,
+        FreshnessReplayUser, FreshnessReader,
     )
 }  # fmt: skip
 
