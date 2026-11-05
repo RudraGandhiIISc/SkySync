@@ -103,6 +103,15 @@ sbatch --export=ALL,ASKIISC_RENEW=1 slurm/serve.sh    # resubmits itself before 
 sbatch --export=ALL,ASKIISC_CHAOS=1 slurm/serve.sh    # fault injection for load tests
 ```
 
+Experiment switches (all default on; `off` only for the named arm):
+
+| Variable | Off means | Used by |
+|---|---|---|
+| `ASKIISC_ADMISSION` | every request admitted, queues without bound | E4 (FR-6) |
+| `ASKIISC_FAIR_QUEUE` | one first-come queue for LLM slots | E4 (FR-11) |
+| `ASKIISC_ANSWER_CACHE` | every request goes to vLLM | FR-7 prefix-cache run |
+| `ASKIISC_PROFILE` (default off) | `1` samples the event loop's stacks to `profile.folded` | FR-6 diagnosis |
+
 The log (`logs/askiisc_serve_<job>.out`) prints `serving on
 http://127.0.0.1:18000` and the tunnel command. Start-up takes about a
 minute with an index snapshot, about 10 minutes when the index changed
@@ -343,6 +352,9 @@ JSON files rather than the UI.
 Run logs: `/data4/muthangiv/askiisc/results/serve/<job>/` (`access.log`,
 `embed.log`, `vllm-N.log`, `requests.log`, `audit.jsonl`, `workers.json`
 (each worker's lifecycle and its card's free memory and sharing at start),
-Prometheus, Grafana, Loki, Locust logs). Check a load run's audit store
+`responses.jsonl` (each question request's status and milliseconds at the
+serving node, FR-6), `loop_lag.jsonl` (event-loop lag per second),
+Prometheus, Grafana, Loki, Locust logs). `python -m eval.fr6_report` turns
+a W2 or `overload` run into FR-6 numbers. Check a load run's audit store
 with `python -m eval.audit_check` (FR-12; see
 [results/v3/FR-12](results/v3/FR-12/README.md)).

@@ -16,7 +16,7 @@ date. Several have since been removed or merged: `slurm/run_stack.sh` and
 | [retrieval-v2/](retrieval-v2/README.md) | 2026-10-26 | vector-only against hybrid search on the held-out set |
 | [live-v2/](live-v2/README.md) | 2026-10-26 | every requirement measured on the serving job with Locust, with charts and Grafana panels |
 | [fr8/](fr8/README.md) | 2026-11-03 | the six models side by side (FR-8) |
-| [v3/](v3/FR-12/README.md) | 2026-11-05 | MVP close-out, one folder per requirement (FR-12 so far) |
+| [v3/](v3/README.md) | 2026-11-05 | MVP close-out, one folder per requirement (FR-12 so far; the rest built and waiting for runs) |
 
 The edition-aware evaluation of 2026-10-27 (Qwen3-8B, 84.5%) is in
 [../STATUS.md](../STATUS.md) section 3; its raw files are in

@@ -1,6 +1,6 @@
 # Status
 
-Where Ask IISc stands on 2026-11-05, what was measured, how it differs from
+Where Ask IISc stands on 2026-11-06, what was measured, how it differs from
 the PRD, and what is left. Every number comes from a Slurm log or a results
 file under `/data4/muthangiv/askiisc/results/`.
 
@@ -38,8 +38,8 @@ Measured in the live-v2 round (2026-10-26, Qwen3-4B, 8 chunks:
 | FR-2 no forbidden chunk retrieved | pass | recall@8 1.000, 0 leaks in 10,000 probes; 0 leaks in the 2026-10-27 live run |
 | FR-3 revocation within 60 s | pass | 3.1 s (live-v2), 7.4 s (2026-10-27) |
 | FR-4 access service failover | pass | denies while down, never answers unchecked |
-| FR-5 versions and staleness | pass | |
-| FR-6 429 within 50 ms at 3x load | **open** | the gateway decides in under 0.5 ms, but one gateway process saturates at 3x load, so clients wait about 1 s (p50) |
+| FR-5 versions and staleness | pass | v3 code (2026-11-06): citations name the version that replaced them (`superseded_by`), answers carry `staleness_flag`; the 60-revision replay is built, not run |
+| FR-6 429 within 50 ms at 3x load | **open** | the gateway decides in under 0.5 ms, but one gateway process saturates at 3x load, so clients wait about 1 s (p50). v3 code (2026-11-06): admission before the route, pool-aware wait, an on/off switch, timing at the serving node and the PRD W2 workload; not measured yet ([results/v3](results/v3/README.md)) |
 | FR-7 batching and prefix cache | pass | |
 | FR-8 six models | pass | six models (section 4) through one client, switched by `ASKIISC_MODEL` only; all six measured 2026-11-03 ([results/fr8](results/fr8/README.md)) |
 | FR-9, FR-10 scaling, scale to zero | pass | 2 workers in 74 s, never above 2, back to 0 61 s after idle |
@@ -51,7 +51,7 @@ Measured in the live-v2 round (2026-10-26, Qwen3-4B, 8 chunks:
 | NFR-4 search at scale | pass | |
 | NFR-5 4-hour soak with a node killed | **open** | not run |
 | NFR-6 GPU-hours per 1,000 queries | pass | Qwen3-8B `diurnal`: 0.181 (job 1820) |
-| NFR-7 accuracy, citations | **pass** (2026-10-27) | 84.5% and 97.7% on the edition-aware set with Qwen3-8B; the held-out v2 set scored 64.7% with Qwen3-4B on the old corpus |
+| NFR-7 accuracy, citations | **pass** (2026-10-27) | 84.5% and 97.7% on the edition-aware set with Qwen3-8B; the held-out v2 set scored 64.7% with Qwen3-4B on the old corpus. Review sheet for people: 111 rubric/judge disagreements plus a 60-item sample (job 2115, [results/v3](results/v3/README.md)) |
 | NFR-8 freshness | pass | |
 | NFR-9 security | pass | 0 leaks; 1 of 69 injections succeeded (≤ 5%) |
 | NFR-10 access latency | pass | |
@@ -121,9 +121,11 @@ What moved it from 63% (same pipeline on the uncleaned corpus):
    `/data4/muthangiv/askiisc/results/locust/2090-steady/client_requests.jsonl`.
 1. **Re-measure NFR-1 and NFR-6** with Qwen3-8B: `sbatch slurm/serve.sh`,
    then `sbatch slurm/loadtest.sh steady` and `diurnal`.
-2. **FR-6:** several gateway processes behind one port, with admission
-   and the fair queue in shared state (Redis), so refusals do not wait
-   behind busy streams.
+2. **FR-6:** measure the v3 code (admission before the route, W2 at 1x,
+   2x and 3x, admission on and off, 3 repetitions; commands in
+   [results/v3](results/v3/README.md)). Only if one process still
+   cannot shed within 50 ms: several gateway processes with shared state
+   in Redis (needs a design approval first).
 3. **FR-11:** a workload where the quiet department asks for at least half
    the capacity, or a token-level quota per department.
 4. **NFR-5:** `sbatch --partition=med_12h_2gpu --time=05:00:00
