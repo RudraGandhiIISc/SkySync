@@ -379,3 +379,25 @@ def test_overrides_survive_a_restart(tmp_path: Path) -> None:
     assert "added" in policies and some not in policies
     assert log.replay(PolicyStore()) == 2
     assert OverrideLog(tmp_path / "none.jsonl").replay(PolicyStore()) == 0
+
+
+async def test_a_timeout_is_a_typed_deny() -> None:
+    from askiisc.common.errors import AccessTimeout
+
+    client, _ = _client([httpx.ReadTimeout("slow")])
+    with pytest.raises(AccessTimeout):
+        await client.filter("t")
+    client, _ = _client([httpx.Response(500)])
+    with pytest.raises(AccessDenied) as caught:
+        await client.filter("t")
+    assert not isinstance(caught.value, AccessTimeout)
+
+
+async def test_other_transport_errors_deny_but_are_not_timeouts() -> None:
+    from askiisc.common.errors import AccessTimeout
+
+    client, transport = _client([httpx.RemoteProtocolError("reset")])
+    with pytest.raises(AccessDenied, match="access service error") as caught:
+        await client.filter("t")
+    assert not isinstance(caught.value, AccessTimeout)
+    assert transport.calls == 1

@@ -14,6 +14,14 @@ class AccessDenied(AskIIScError):
     """
 
 
+class AccessTimeout(AccessDenied):
+    """The access service did not answer in time (still a deny).
+
+    A subclass, so every caller that catches AccessDenied still fails
+    closed; audit records use it to tell a timeout from a real denial.
+    """
+
+
 class RateLimited(AskIIScError):
     """A request was shed by the load limits (FR-6)."""
 

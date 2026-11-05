@@ -13,7 +13,7 @@ import httpx
 from askiisc.access.policy import AccessFilter, PolicyEngine
 from askiisc.common import requestid
 from askiisc.common.clock import Clock
-from askiisc.common.errors import AccessDenied, AuthError
+from askiisc.common.errors import AccessDenied, AccessTimeout, AuthError
 from askiisc.common.targets import ACCESS_CLIENT_TIMEOUT_S
 from askiisc.common.tokens import TokenVerifier
 from askiisc.common.types import DocId, UserId
@@ -125,6 +125,8 @@ class HttpAccessClient:
                 if attempt == 0:
                     continue
                 raise AccessDenied("access service unreachable") from err
+            except httpx.TimeoutException as err:
+                raise AccessTimeout("access service timed out") from err
             except httpx.HTTPError as err:
                 raise AccessDenied(f"access service error: {err}") from err
             if response.status_code != httpx.codes.OK:
