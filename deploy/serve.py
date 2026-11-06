@@ -991,16 +991,38 @@ def save_upload(state: Path, doc_id: str, info: dict[str, str]) -> None:
 def make_publisher(
     ingestor: Ingestor,
     live: Live,
-    clock: SystemClock,
+    clock: Any,
     catalogue: dict[str, dict[str, str]],
     state: Path,
+    later: Callable[[float, Callable[[], None]], Any] | None = None,
 ) -> Any:
     """Publishes a new version of a document from file bytes (FR-5).
 
     The ingest pipeline extracts, chunks, embeds and writes it to Milvus
     and the in-memory index; the previous version is retired. The title
     is kept in `state/uploads.json` so it survives a restart.
+
+    The answer cache's generation is bumped at publish and again when the
+    new version becomes visible: answers made in between still used the
+    old version, and without the second bump they stayed cached under the
+    new generation and were served unflagged (run 2143: 278 answers, up to
+    249 s after the old version was retired).
+
+    Args:
+        ingestor: The ingest pipeline.
+        live: The running system (holds the cache generation).
+        clock: Wall-clock time.
+        catalogue: Titles and links per document.
+        state: The state folder (uploads.json).
+        later: Runs a callback after a delay in seconds (the event loop's
+            call_later; a recorder in tests).
+
+    Returns:
+        The publish coroutine function.
     """
+
+    def bump() -> None:
+        live.generation[0] += 1  # answer cache entries are now stale
 
     async def publish(
         doc_id: str, data: bytes, content_type: str, title: str
@@ -1008,7 +1030,9 @@ def make_publisher(
         doc = SourceDocument(DocId(doc_id), content_type)
         fingerprint = hashlib.sha256(data).hexdigest()
         result = await ingestor.ingest(doc, data, fingerprint, clock.now())
-        live.generation[0] += 1  # answer cache entries are now stale
+        bump()
+        run_later = later or asyncio.get_running_loop().call_later
+        run_later(max(0.0, result.visible_from - clock.now()), bump)
         answer = {
             "doc_id": result.doc_id,
             "version": int(result.version),
