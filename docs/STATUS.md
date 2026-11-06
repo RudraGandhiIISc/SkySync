@@ -16,9 +16,13 @@ file under `/data4/muthangiv/askiisc/results/`.
   restricted test documents; 574,672 chunks.
 - **Answer quality:** Qwen3-8B answers 84.5% of 400 edition-aware
   questions correctly, citations 97.7% correct (NFR-7: 80% and 90%).
-- **Quality gate:** green on 2026-11-05 (job 2098): format, lint, mypy --strict, 1,038
-  unit and conformance tests (coverage above 97%), integration, e2e,
-  security, regression.
+- **Quality gate:** green on 2026-11-06 (job 2154: integration, e2e,
+  security, regression; job 2156 on the last fix: format, lint, mypy
+  --strict, 1,137 unit and conformance tests, coverage above 97%).
+- **v3 runs (2026-11-06):** results in
+  [results/v3/RESULTS.md](results/v3/RESULTS.md), built from the raw
+  files by `tools/v3_results.py`. All on GPU 0 shared with other users'
+  jobs at 100% (R-3), one worker, Qwen3-8B-AWQ unless noted.
 - **Live check** (serving job 1794, 2026-10-27): every chat and admin
   action works on the real system; "this year" and "in Aug 2025" questions
   cite the right DS252 edition and mark the old one superseded; a CDS
@@ -36,16 +40,16 @@ Measured in the live-v2 round (2026-10-26, Qwen3-4B, 8 chunks:
 |---|---|---|
 | FR-1 cited answers, refusals | pass | |
 | FR-2 no forbidden chunk retrieved | pass | recall@8 1.000, 0 leaks in 10,000 probes; 0 leaks in the 2026-10-27 live run |
-| FR-3 revocation within 60 s | pass | 3.1 s (live-v2), 7.4 s (2026-10-27) |
+| FR-3 revocation within 60 s | pass (7 revocations) | 3.1 s (live-v2), 7.4 s (2026-10-27). E1's 100 scripted revocations: the 2026-11-06 run (job 2143) is invalid (a test bug ended it after 23 cycles); re-run queued (job 2156) |
 | FR-4 access service failover | pass | denies while down, never answers unchecked |
-| FR-5 versions and staleness | pass | v3 code (2026-11-06): citations name the version that replaced them (`superseded_by`), answers carry `staleness_flag`; the 60-revision replay is built, not run |
-| FR-6 429 within 50 ms at 3x load | **open** | the gateway decides in under 0.5 ms, but one gateway process saturates at 3x load, so clients wait about 1 s (p50). v3 code (2026-11-06): admission before the route, pool-aware wait, an on/off switch, timing at the serving node and the PRD W2 workload; not measured yet ([results/v3](results/v3/README.md)) |
-| FR-7 batching and prefix cache | pass | |
+| FR-5 versions and staleness | **open** | citations name the version that replaced them (`superseded_by`) and answers carry `staleness_flag`. Replay of 60 revisions over 20 documents (job 2143): as-of correct at 60 of 60 checkpoints, demotion p50 17 s, p95 44 s, max 99 s; but 266 answers from the answer cache used a superseded version without the flag (target 0). Fixed (cache generation bumped again when a revision becomes visible); re-run queued (job 2156) |
+| FR-6 429 within 50 ms at 3x load | **pass** (2026-11-06) | W2 at 3x, median of 3 (job 2134): 429 p99 24.3 ms at the serving node, accepted p95 4.1% lower than at 1x. Client 429 p99 72 to 90 ms. With admission off nothing collapsed at this load (82% answer-cache hits), so E4's collapse is not shown ([results/v3](results/v3/RESULTS.md)) |
+| FR-7 batching and prefix cache | pass at vLLM, **open** at the client | W1, answer cache off, 3 runs each (job 2143): prefix-cache hit rate 65.9% (target 50%); p95 first token 38.9% lower at vLLM (935 against 1,529 ms) but 7.4% lower at the client (2.5 against 2.7 s; retrieval before the model dominates). Where first token is measured is not decided |
 | FR-8 six models | pass | six models (section 4) through one client, switched by `ASKIISC_MODEL` only; all six measured 2026-11-03 ([results/fr8](results/fr8/README.md)) |
 | FR-9, FR-10 scaling, scale to zero | pass | 2 workers in 74 s, never above 2, back to 0 61 s after idle |
 | FR-11 fairness | **open** | quiet department 33% (≥ 20% met); busy department 67% (≤ 55% not met) |
 | FR-12 audit | pass (2026-11-05) | v3: 2,633 of 2,633 requests audited, 1,940 of 1,940 citations reproduced, 0 question strings in the store; latency breakdown per stage ([results/v3/FR-12](results/v3/FR-12/README.md), run 2099/2100, shared GPU) |
-| NFR-1 latency | **open** with 8B | Qwen3-8B, 12 chunks, `steady` 60 users (job 1818, 2026-10-27): p95 total 4.0 s, first token 1.7 s; embedding (p95 0.64 s) and reranking (0.88 s) before the model, vLLM's own first token 0.38 s |
+| NFR-1 latency | **open** with 8B (3 runs running, job 2143) | Qwen3-8B, 12 chunks, `steady` 60 users (job 1818, 2026-10-27): p95 total 4.0 s, first token 1.7 s; embedding (p95 0.64 s) and reranking (0.88 s) before the model, vLLM's own first token 0.38 s |
 | NFR-2 cold start | pass | Qwen3-8B: worst first token 34.7 s (job 1819) |
 | NFR-3 throughput | pass | 5,195 tokens/s at concurrency 64 (4B) |
 | NFR-4 search at scale | pass | |
@@ -109,42 +113,46 @@ What moved it from 63% (same pipeline on the uncleaned corpus):
 - **No TLS on the gateway** (reached only through the SSH tunnel); no
   packet capture (no root).
 
-## 6. Next steps
+## 6. What is left (2026-11-06)
 
-0. **Chat-app 503s under load (open, NFR-4).** In run 2090 (`steady`, one
-   worker, shared GPU) 30 of 2,493 client requests (1.2%) got HTTP 503:
-   the chat app's access check for the chat history timed out and it
-   refused, failing closed. They are now audited
-   (`reason=access_check_timeout`), but 1.2% is above NFR-4's 1% error
-   limit; to be measured again in Phase 8. Fail-closed behaviour is not
-   changed. Source:
-   `/data4/muthangiv/askiisc/results/locust/2090-steady/client_requests.jsonl`.
-1. **Re-measure NFR-1 and NFR-6** with Qwen3-8B: `sbatch slurm/serve.sh`,
-   then `sbatch slurm/loadtest.sh steady` and `diurnal`.
-2. **FR-6:** measure the v3 code (admission before the route, W2 at 1x,
-   2x and 3x, admission on and off, 3 repetitions; commands in
-   [results/v3](results/v3/README.md)). Only if one process still
-   cannot shed within 50 ms: several gateway processes with shared state
-   in Redis (needs a design approval first).
-3. **FR-11:** a workload where the quiet department asks for at least half
-   the capacity, or a token-level quota per department.
-4. **NFR-5:** `sbatch --partition=med_12h_2gpu --time=05:00:00
-   --export=ALL,ASKIISC_CHAOS=1 slurm/serve.sh`, then the `soak` workload
-   (about 4 GPU-hours).
-5. **FR-8 speed on an idle card:** the 2026-11-03 runs shared GPU 0 with
-   another user's job at 100%, so their p95 and tokens/s understate the
-   models; repeat `slurm/fr8_bench.sh` for the five models when a card is
-   free (about 20 GPU-minutes each).
-6. **People:** review the question sets; settle the judge's disagreements;
-   real department admins for CSA and CDS (the directory now holds only
-   CSA, CDS and the institute); server accounts for teammates (SSH tunnel).
-   E-mail for registration and password resets goes through a Gmail
-   account with an app password (`private/app/smtp.json`); reset e-mails
-   were tested live on 2026-11-02.
-7. **Release:** run the whole gate, commit (the working repository is
-   committed once, at deployment), and push the code-only copy once the
-   GitHub address and a deploy key exist. Real users, accounts, chats and
-   the corpus stay on `/data4` and are never committed.
+**Running and queued.** Commands and parts: `slurm/v3_stack.sh`.
+
+| Job | What | Expected end |
+|---|---|---|
+| 2143 (running) | NFR-1 (`steady` x3, Qwen3-8B); 20 scripted cold starts each for Qwen3-4B, Qwen3-8B, Qwen3-8B-AWQ (NFR-2, FR-10); Falcon3 3B, 7B, 7B-AWQ smoke tests and the KV comparison at 24 GB (FR-8); E2, one W1 run per model | about 17:00 |
+| 2156 (queued) | FR-5 freshness replay again (checks the cache fix) and FR-3's 100 scripted revocations | about 18:30 |
+| 2124 (queued) | the standing serving job again (Qwen3-8B-AWQ, 1 worker, renews itself) | after 2156 |
+
+**Not scheduled.**
+
+1. **E3 idle-timeout sweep** (T_idle 0, 60, 300, 900 s and none, W3 at
+   24x, 3 models): about 15 GPU-hours. Left for later on 2026-11-06.
+2. **E0 throughput sweep and the NFR-3 baseline:** needs an idle card;
+   GPU 0 was shared all day. Explain 5,195 against 2,660 tokens/s then.
+3. **FR-8 nine models:** add Falcon3 to `llm/models.yaml` (with the count
+   and registry test set to 9 in the same commit) once its smoke tests
+   pass; Gemma-3 and Llama-3.1 still need accepted licences.
+4. **FR-8 and NFR-7 for new models:** quality runs, and an outside judge
+   for the Granite rows (a proposal is owed before this).
+5. **NFR-6 three ways** (rated load, goodput, W3 replay) and per 1,000
+   correct answers, for every model; needs E2 and the sweep.
+6. **FR-11:** the busy department still gets 67% (at most 55%). Run
+   `fairness` with the fair queue on and off; a token quota per
+   department only after approval.
+7. **E4 collapse:** W2 at 3x did not saturate the GPU (answer cache).
+   Showing the collapse needs W2 with the answer cache off, or more load.
+8. **NFR-4 chat-app 503s:** 1.2% in run 2090 (limit 1%); not seen in the
+   2026-11-06 runs, to be checked in a full report.
+9. **NFR-5:** the 4-hour soak with a node killed (about 4 GPU-hours).
+10. **Decisions for people:** where FR-7's first token is measured
+    (client or vLLM); fill in the NFR-7 review sheet
+    (`/data4/muthangiv/askiisc/results/adjudication/qwen3-8b-p2/review.csv`,
+    171 rows); review the question sets; real department admins; server
+    accounts for teammates.
+11. **Close-out:** evidence page per requirement, traceability table,
+    `make figures`, the full gate, merge the phase branches
+    (`phase-14` to `phase-19`) in order; the release push needs the GitHub
+    address and a deploy key.
 
 ## 7. Bugs found and fixed
 
@@ -173,8 +181,18 @@ Each has a regression test unless noted.
 | The Granite-3.3-8B AWQ build declared `compressed-tensors`, not `awq`, and its newer config was refused by vLLM 0.11; once loaded, it produced gibberish on long RAG prompts (replaced by a GPTQ build) | FR-8 runs, 2026-11-03 |
 | Admin policy routes passed the document id unchecked into the access service URL (a ".." id climbed out of `/v1/policy/`, with the admin's own token) | review, 2026-11-03 |
 | An institute admin could make a document owned by a department that does not exist, which no department admin could then manage | review, 2026-11-03 |
+| The audit file was opened and closed on the NFS drive for every record; the event loop spent 74% of its time there and a 429 at 3x took up to 16 s | FR-6 profile, job 2117, 2026-11-06 |
+| `workers.json` and the Prometheus targets were written on the event loop once a second (stalls up to 613 ms); full garbage collections walked the whole index | FR-6 profiles, jobs 2123 and 2126 |
+| Answers cached in the 5 s before a revision became visible kept the old version and were served without the stale flag (278 answers, up to 249 s after the old version was retired) | FR-5 replay, job 2143 |
+| The scripted revocation user also ran its base class's uncoordinated cycle; when the run ended, 5 restricted test policies stayed deleted (restored by hand through the admin API; the test code now always restores) | FR-3 run, job 2143 |
+| The freshness check took replacement times from Locust's publish events, about 4 s before the server commits (0 of 60 as-of checks passed; 60 of 60 with the store's times) | FR-5 replay, job 2143 (test tool) |
+| New Locust user classes were not registered for the load shape, so W2 crashed at once | FR-6, job 2126 (test tool) |
 
 ## 8. Evidence
+
+- [results/v3/RESULTS.md](results/v3/RESULTS.md): the v3 runs
+  (2026-11-06), compiled from raw files; [results/v3/](results/v3/README.md)
+  has the run commands.
 
 - [results/fr8/](results/fr8/README.md): the six models side by side
   (2026-11-03).
