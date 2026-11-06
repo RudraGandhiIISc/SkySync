@@ -73,7 +73,15 @@ stack() {
   echo "== $name: $envs, $runs x $* ($(date +%T))"
   (
     for kv in $envs; do export "${kv?}"; done
-    up "$dir/serve" "$warm" || exit 1
+    # Other users' jobs can fill every card for minutes (the embedding
+    # server then fails to load): try the stack up to 3 times.
+    local try=1
+    until up "$dir/serve.$try" "$warm"; do
+      [ "$try" -lt 3 ] || exit 1
+      echo "$name: stack try $try failed; again in 5 min"
+      sleep 300; try=$((try + 1))
+    done
+    ln -sfn "serve.$try" "$dir/serve"
     for k in $(seq 1 "$runs"); do
       mkdir -p "$dir/rep$k"
       ASKIISC_LOCUST_RESULTS="$dir/rep$k" bash slurm/loadtest.sh "$@" \
