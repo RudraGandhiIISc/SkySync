@@ -109,6 +109,8 @@ def fr6_section(job: str, profiles: Sequence[str]) -> list[str]:
                 )
     if not off:
         out += ["", f"Admission off: {NOT_RUN}."]
+    else:
+        out += ["", *e4_reading(on, off)]
     out += ["", "![Goodput against offered load](FR-6/goodput.svg)", ""]
     out += profile_rows(profiles)
     out += [
@@ -119,6 +121,60 @@ def fr6_section(job: str, profiles: Sequence[str]) -> list[str]:
     ]
     write_goodput(on, off)
     return out
+
+
+def at(reports: list[dict[str, Any]], k: int, key: str) -> float | None:
+    """Median of one field at load multiple k across repetitions."""
+    rows = [m for r in reports for m in r["multiples"] if m["multiple"] == k]
+    if key == "accepted_p95":
+        return med([m["accepted_ms"]["p95"] / 1000 for m in rows])
+    return med([m[key] for m in rows])
+
+
+def cache_share(reports: list[dict[str, Any]]) -> str:
+    """Share of answers served from the answer cache in an arm's audit."""
+    if not reports:
+        return "n/a"
+    audit = Path(reports[0]["serve"]) / "audit.jsonl"
+    rows = [
+        r
+        for r in read_lines(audit)
+        if r["decision"] in ("answered", "abstained")
+    ]
+    hits = sum(bool(r.get("cache_hit")) for r in rows)
+    return (
+        f"{100 * hits / len(rows):.1f}% of {len(rows):,} answers"
+        if rows
+        else "n/a"
+    )
+
+
+def e4_reading(
+    on: list[dict[str, Any]], off: list[dict[str, Any]]
+) -> list[str]:
+    """What the admission-off arm shows (E4), from the medians."""
+    g_on, g_off = at(on, 3, "goodput_per_s"), at(off, 3, "goodput_per_s")
+    o_off = at(off, 3, "offered_per_s")
+    p_on, p_off = at(on, 3, "accepted_p95"), at(off, 3, "accepted_p95")
+    lines = [
+        f"At 3x (medians of 3): goodput {fmt(g_on, 2)}/s with admission on and",
+        f"{fmt(g_off, 2)}/s with it off (offered {fmt(o_off, 2)}/s); accepted p95",
+        f"{fmt(p_on)} s on and {fmt(p_off)} s off.",
+    ]
+    if g_on is not None and g_off is not None and g_off >= g_on:
+        lines += [
+            "",
+            "**E4's collapse is not shown at this load.** With admission off",
+            "every request was answered and goodput kept up with the offered",
+            "load, so admission refused work the system could still serve.",
+            "W2 at 3x is about 15 requests/s, and W1's repeated questions are",
+            f"mostly answered from the answer cache ({cache_share(off)}), so the",
+            "GPU stayed below saturation. Showing the collapse needs more load than W2 3x (for",
+            "example `overload`, or W2 with the answer cache off). The FR-6",
+            "verdict (429 time and accepted p95 with admission on) does not",
+            "depend on this.",
+        ]
+    return lines
 
 
 def profile_rows(profiles: Sequence[str]) -> list[str]:
@@ -444,31 +500,16 @@ def parse_log(path: Path) -> Any:
     return parse(path.read_text(errors="replace")) if path.exists() else None
 
 
-def e0_section(job: str) -> list[str]:
-    """NFR-3 / E0: each model's throughput sweep."""
-    out = ["## NFR-3: throughput sweep per model (E0)", ""]
-    rows = []
-    for folder in sorted((DATA / "models").glob("*/bench-*")):
-        if not (folder / "sweep.json").exists() or int(
-            folder.name.split("-")[1]
-        ) < int(job):
-            continue
-        sweep = load(folder / "sweep.json")
-        best = max(sweep, key=lambda r: r["output_tokens_per_s"])
-        rows.append(
-            f"| {folder.parent.name} | {best['concurrency']} | {fmt(best['output_tokens_per_s'], 0)} | {fmt(best['ttft_p95_s'], 2)} | {fmt(best['total_p95_s'], 1)} |"
-        )
-    if not rows:
-        return [*out, f"{NOT_RUN}.", ""]
+def e0_section() -> list[str]:
+    """NFR-3 / E0: deferred until a card is idle (decided 2026-11-06)."""
     return [
-        *out,
-        "| Model | Concurrency at peak | Output tokens/s at peak | p95 first token (s) | p95 total (s) |",
-        "|---|---|---|---|---|",
-        *rows,
+        "## NFR-3: throughput sweep per model (E0)",
         "",
-        f"Raw files: `{DATA}/models/<key>/bench-<job>/sweep.json`.",
+        "Deferred: E0 counts only on an idle card, and GPU 0 was shared at",
+        "100% use all day (decided 2026-11-06). The last sweeps (2026-11-03,",
+        "shared card) are in `results/models/<key>/bench-<job>/sweep.json`.",
         "",
-    ]  # fmt: skip
+    ]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -495,7 +536,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         *nfr1_section(args.v3),
         *cold_section(args.v3),
         *fr8_section(args.v3),
-        *e0_section(args.fr6),
+        *e0_section(),
         "## GPU memory at the start of the v3 job",
         "",
         "```",
