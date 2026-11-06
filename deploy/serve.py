@@ -25,6 +25,8 @@ import argparse
 import asyncio
 import contextlib
 import dataclasses
+import faulthandler
+import gc
 import hashlib
 import json
 import logging
@@ -1309,6 +1311,12 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
         LOG.info("allowlist started with %d people of the directory", added)
     app = create_gateway(deps)
     mount_web(app, web)
+    # The index and corpus loaded at start-up live until shutdown: keep them
+    # out of every later collection, which would otherwise walk them all
+    # while the event loop waits (FR-6 profile: shed p99 at 3x 296 ms in
+    # run 2126, 87 ms with this in run 2130).
+    gc.collect()
+    gc.freeze()
     timing = NodeTiming(paths.run, profile=settings.profile)
     app.add_middleware(
         ResponseTimer,
@@ -1430,6 +1438,9 @@ def write_current(
 
 def main() -> None:  # pragma: no cover
     """Command-line entry point."""
+    # A crash of the serving process prints every thread's stack to the
+    # job log (run 2130 died with SIGSEGV and left no trace).
+    faulthandler.enable()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--corpus", type=Path, required=True)
