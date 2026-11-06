@@ -474,6 +474,7 @@ class ColdStartUser(AskUser):
     def cold_start(self) -> None:
         """One cycle: wait for zero workers, then one question."""
         if self.done >= COLD_STARTS:
+            self.environment.runner.quit()  # done: no idle GPU job
             gevent.sleep(5)
             return
         while not self._pool_empty():
@@ -734,6 +735,8 @@ class ScriptedRevocationUser(RevocationUser):
     def revoke_and_watch(self) -> None:
         """One revocation cycle on a document no other user is revoking."""
         if RESULTS.counts["revocation_cycles"] >= REVOCATIONS_TOTAL:
+            if not REVOKING:  # every cycle done: end the run, not idle on
+                self.environment.runner.quit()
             gevent.sleep(5)
             return
         cases = [
