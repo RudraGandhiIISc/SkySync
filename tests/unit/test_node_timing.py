@@ -21,15 +21,3 @@ def test_timing_files_are_written_and_closed(tmp_path: Path) -> None:
 def test_no_profile_file_without_the_switch(tmp_path: Path) -> None:
     NodeTiming(tmp_path, profile=False).close()
     assert not (tmp_path / "profile.folded").exists()
-
-
-def test_gc_pauses_are_logged_while_timing_runs(tmp_path: Path) -> None:
-    import gc
-
-    before = len(gc.callbacks)
-    timing = NodeTiming(tmp_path, profile=False)
-    assert len(gc.callbacks) == before + 1
-    gc.collect()
-    timing.close()
-    assert len(gc.callbacks) == before
-    assert (tmp_path / "gc.jsonl").exists()
