@@ -279,6 +279,8 @@ class ProcessPoolConfig:
     acquire_delay_s: float = 0.0
     stop_grace_s: float = 30.0
     extra_env: dict[str, str] = field(default_factory=dict)
+    # vLLM automatic prefix caching (FR-7); False only for the ablation.
+    prefix_caching: bool = True
 
 
 class ProcessPool:
@@ -337,7 +339,9 @@ class ProcessPool:
             "127.0.0.1",
             "--port",
             str(port),
-            "--enable-prefix-caching",
+            "--enable-prefix-caching"
+            if c.prefix_caching
+            else "--no-enable-prefix-caching",
             "--max-model-len",
             str(c.max_model_len),
             # Log each request's id (sent as X-Request-Id) but no prompt

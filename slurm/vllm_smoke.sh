@@ -17,15 +17,16 @@ source slurm/lib.sh
 export HF_HUB_OFFLINE=1   # runs never reach the internet (NFR-9)
 
 MODEL=${MODEL:-Qwen/Qwen3-4B-Instruct-2507}
-OUT="$ASKIISC_DATA/results/smoke/$SLURM_JOB_ID"
+OUT=${SMOKE_OUT:-"$ASKIISC_DATA/results/smoke/$SLURM_JOB_ID"}
 mkdir -p "$OUT"
 
 nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total \
   --format=csv | tee "$OUT/gpus_before.csv"
 read -r GPU FREE TOTAL < <(pick_gpu)
-FRAC=$(mem_fraction "$FREE" "$TOTAL")
+# MEM_FRACTION fixes the budget (the FR-8 KV comparison at 24 GB: 0.17).
+FRAC=${MEM_FRACTION:-$(mem_fraction "$FREE" "$TOTAL")}
 echo "card $GPU: ${FREE} MiB free of ${TOTAL}; --gpu-memory-utilization $FRAC"
-if awk -v x="$FRAC" 'BEGIN { exit !(x < 0.25) }'; then
+if [ -z "${MEM_FRACTION:-}" ] && awk -v x="$FRAC" 'BEGIN { exit !(x < 0.25) }'; then
   echo "not enough free GPU memory on any card; try later"; exit 1
 fi
 export CUDA_VISIBLE_DEVICES=$GPU
@@ -33,7 +34,7 @@ export CUDA_VISIBLE_DEVICES=$GPU
 PORT=$(free_port)
 START=$(date +%s)
 "$SERVE_VENV/bin/vllm" serve "$MODEL" --host 127.0.0.1 --port "$PORT" \
-  --dtype bfloat16 --max-model-len 8192 --enable-prefix-caching \
+  --dtype "${DTYPE:-bfloat16}" --max-model-len 8192 --enable-prefix-caching \
   --gpu-memory-utilization "$FRAC" > "$OUT/vllm.log" 2>&1 &
 PID=$!
 trap 'kill $PID 2>/dev/null; wait $PID 2>/dev/null' EXIT

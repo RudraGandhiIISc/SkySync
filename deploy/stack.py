@@ -198,6 +198,7 @@ def make_pool(
         ],
         log_dir=str(run_dir),
         max_workers=settings.max_workers,
+        prefix_caching=settings.prefix_cache,
     )
     allowed = allowed_gpus()
     return ProcessPool(

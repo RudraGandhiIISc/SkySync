@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     # The answer cache (ASKIISC_ANSWER_CACHE=off sends every request to
     # vLLM, for the FR-7 prefix-cache experiment).
     answer_cache: bool = True
+    # vLLM prefix caching (ASKIISC_PREFIX_CACHE=off for the FR-7 ablation).
+    prefix_cache: bool = True
     # Sample the event loop's Python stacks to profile.folded (FR-6
     # diagnosis; ASKIISC_PROFILE=1). Off in normal serving.
     profile: bool = False

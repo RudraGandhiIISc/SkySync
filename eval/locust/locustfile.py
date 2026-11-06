@@ -288,6 +288,7 @@ class AskUser(HttpUser):
                 r.failure(f"HTTP {r.status_code}")
                 return None
             ttft, answer, error, warm = read_stream(r, started)
+            self.last_ttft, self.last_warming = ttft, warm
             log(200, (answer or {}).get("request_id") or rid, answer, warm)
             r.request_meta["response_time"] = (
                 time.perf_counter() - started
@@ -440,6 +441,53 @@ class W1User(AskUser):
         if DRAINING.is_set():
             return
         self.ask(str(W1_QUESTIONS.draw()["question"]), True, "w1 question")
+
+
+COLD_STARTS = 20
+
+
+class ColdStartUser(AskUser):
+    """E3 (c): 20 scripted cold starts (FR-10, NFR-2).
+
+    Waits until the pool is back at zero (the gateway's /healthz), then
+    asks one question and records its time to first token and whether it
+    was held for a warming worker. Run with a short idle timeout
+    (ASKIISC_IDLE_TIMEOUT_S); acquisition and weight-load times come from
+    the run's workers.json.
+    """
+
+    fixed_count = 1
+    wait_time = constant(1)
+
+    def on_start(self) -> None:
+        """Logs in; no cold start counted yet."""
+        super().on_start()
+        self.done = 0
+        self.last_ttft: float | None = None
+        self.last_warming = False
+
+    def _pool_empty(self) -> bool:
+        r = self.client.get("/healthz", name="healthz")
+        return r.ok and not r.json().get("workers_ready")
+
+    @task
+    def cold_start(self) -> None:
+        """One cycle: wait for zero workers, then one question."""
+        if self.done >= COLD_STARTS:
+            gevent.sleep(5)
+            return
+        while not self._pool_empty():
+            gevent.sleep(5)
+        sent = time.time()
+        answer = self.ask(
+            random.choice(ANSWERABLE)["question"], True, "cold start"
+        )
+        self.done += 1
+        RESULTS.event(
+            {"kind": "cold_start", "n": self.done, "sent": sent,
+             "ttft_s": self.last_ttft, "warming": self.last_warming,
+             "answered": answer is not None}
+        )  # fmt: skip
 
 
 class RepeatUser(AskUser):
@@ -1114,7 +1162,7 @@ CLASSES = {
         ChatUser, TemporaryUser, BurstUser, RepeatUser, HeavyTenantUser,
         LightTenantUser, ProbeUser, RevocationUser, RevisionUser, RedTeamUser,
         ChaosUser, QualityUser, AuthAbuseUser, W1User, ScriptedRevocationUser,
-        FreshnessReplayUser, FreshnessReader,
+        FreshnessReplayUser, FreshnessReader, ColdStartUser,
     )
 }  # fmt: skip
 
