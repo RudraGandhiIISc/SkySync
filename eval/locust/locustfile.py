@@ -718,7 +718,7 @@ class RevisionUser(AskUser):
 
 
 class ScriptedRevocationUser(RevocationUser):
-    """E1: 100 scripted revocations, five at a time on different documents.
+    """E1: 100 scripted revocations, ten at a time on different documents.
 
     The same cycle as RevocationUser, probing every second for 75 s, until
     REVOCATIONS_TOTAL cycles have run. Each cycle's time from the revoke to
@@ -726,7 +726,7 @@ class ScriptedRevocationUser(RevocationUser):
     (FR-3: at most 60 s).
     """
 
-    fixed_count = 5
+    fixed_count = 10
     wait_time = constant(2)
     PROBE_S = 1.0
     WATCH_S = 75.0

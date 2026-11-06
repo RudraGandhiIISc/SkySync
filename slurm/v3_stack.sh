@@ -6,7 +6,7 @@
 #   fr7      W1 x3 with the answer cache off, prefix caching on, then off
 #   nfr1     steady x3 with Qwen3-8B (NFR-1)
 #   cold     20 scripted cold starts each for Qwen3-4B, Qwen3-8B, Qwen3-8B-AWQ
-#   e2       W1 x3 for every registered model (E2)
+#   e2       W1 for every registered model, E2_REPS times (default 3)
 #   idle     W3 for T_idle in 0, 60, 300, 900, 86400 s, best model per class
 # Direct vLLM parts:
 #   smoke    Falcon3 3B, 7B, 7B-AWQ start and answer (FR-8 replacements)
@@ -21,7 +21,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=128G
-#SBATCH --time=14:00:00
+#SBATCH --time=30:00:00
 #SBATCH --output=logs/%x_%j.out
 set -uo pipefail
 cd "$SLURM_SUBMIT_DIR"
@@ -102,7 +102,7 @@ for p in $PARTS; do
       done ;;
     e2)
       for m in $(uv run python -c "from askiisc.llm.models import load_models; print(' '.join(load_models()))"); do
-        stack "e2-$m" warm 3 "ASKIISC_MODEL=$m" w1 || failed=$((failed + 1))
+        stack "e2-$m" warm "${E2_REPS:-3}" "ASKIISC_MODEL=$m" w1 || failed=$((failed + 1))
       done ;;
     idle)
       for m in qwen3-4b-instruct-2507 qwen3-8b qwen3-8b-awq; do

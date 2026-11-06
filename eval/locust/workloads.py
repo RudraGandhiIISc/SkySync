@@ -24,7 +24,7 @@ from `peak` when it is given.
 | auth       | security                 | bad logins, lockout, bad sessions    |
 | mixed      | demo                     | a realistic mix of everything        |
 | freshness  | FR-5, E5                 | 60 revisions over 20 docs, 1 per 20 s|
-| revocations| FR-3, E1                 | 100 scripted revocations, 5 at a time|
+| revocations| FR-3, E1                 | 100 scripted revocations, 10 at once |
 | cold20     | FR-10, NFR-2, E3         | 20 cold starts, one at a time        |
 | w1         | FR-7, NFR-1, E2          | PRD W1: 60 users, Exp(10 s) think    |
 | w2         | FR-6, E3, E4             | PRD W2: W1 at 1x, 2x and 3x          |
@@ -238,7 +238,7 @@ WORKLOADS: dict[str, tuple[str, int, Builder]] = {
         8,
         _fixed(("FreshnessReplayUser", "FreshnessReader"), 1500),
     ),
-    "revocations": ("FR-3, E1", 5, _fixed(("ScriptedRevocationUser",), 3600)),
+    "revocations": ("FR-3, E1", 10, _fixed(("ScriptedRevocationUser",), 3600)),
     "cold20": ("FR-10, NFR-2, E3", 1, _fixed(("ColdStartUser",), 7200)),
     "w1": ("FR-7, NFR-1, E2", 60, _w1),
     "w2": ("FR-6, E3, E4", 60, _w2),
