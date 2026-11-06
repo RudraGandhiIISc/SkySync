@@ -65,6 +65,23 @@ def superseded_at(pubs: list[Publish]) -> dict[tuple[str, int], float]:
     return out
 
 
+def replaced_in(
+    versions: VersionStore, docs: set[str]
+) -> dict[tuple[str, int], float]:
+    """When the version store retired each version of the given documents.
+
+    The server makes a revision current when it commits, a few seconds
+    after the publish call returns, so these times (not the publish
+    events') decide whether an answer used a superseded version.
+    """
+    out: dict[tuple[str, int], float] = {}
+    for doc in docs:
+        for record in versions.history(DocId(doc)):
+            if record.valid_to is not None:
+                out[(doc, int(record.version))] = float(record.valid_to)
+    return out
+
+
 def demotion_s(
     pubs: list[Publish], answers: list[dict[str, Any]]
 ) -> list[float]:
@@ -117,13 +134,24 @@ def unflagged_used(
     return used, unflagged
 
 
+AS_OF_LAST_S = 60.0
+"""Checkpoint after a document's last revision: this long after it."""
+
+
 def as_of_checks(
     pubs: list[Publish], versions: VersionStore
 ) -> list[dict[str, Any]]:
-    """The version store's as-of answer just after each publish."""
+    """The version store's as-of answer at each revision's checkpoint.
+
+    The checkpoint is half-way between a revision's publish and the next
+    publish of the same document (AS_OF_LAST_S after the last one), so it
+    falls after the commit and before the next revision.
+    """
     out = []
-    for pub in pubs:
-        record = versions.as_of(DocId(pub.doc), pub.time + 1e-3)
+    for i, pub in enumerate(pubs):
+        later = [p.time for p in pubs[i + 1 :] if p.doc == pub.doc]
+        end = later[0] if later else pub.time + 2 * AS_OF_LAST_S
+        record = versions.as_of(DocId(pub.doc), (pub.time + end) / 2)
         got = None if record is None else int(record.version)
         out.append({"doc": pub.doc, "time": pub.time, "expected": pub.version,
                     "got": got, "ok": got == pub.version})  # fmt: skip
@@ -135,7 +163,7 @@ def check(locust: Path, serve: Path, versions: VersionStore) -> dict[str, Any]:
     events = read_lines(locust / "events.jsonl")
     pubs = publishes(events)
     answers = [e for e in events if e.get("kind") == "answer"]
-    replaced = superseded_at(pubs)
+    replaced = replaced_in(versions, {p.doc for p in pubs})
     audit = read_lines(serve / "audit.jsonl")
     used, unflagged = unflagged_used(audit, replaced)
     checkpoints = as_of_checks(pubs, versions)

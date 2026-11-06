@@ -87,3 +87,18 @@ def test_every_workload_class_is_registered_for_the_shape(name: str) -> None:
     # CLASSES, so the shape failed with KeyError and w2 never ran.
     for stage in plan(name).stages:
         assert set(stage.classes) <= _registered()
+
+
+def test_scripted_revocations_do_not_inherit_the_uncoordinated_cycle() -> None:
+    # Regression (run 2143): Locust runs a base class's tasks too, so a
+    # RevocationUser base revoked the same documents at once and left five
+    # policies deleted when the run ended.
+    tree = ast.parse(Path("eval/locust/locustfile.py").read_text())
+    cls = next(
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.ClassDef) and n.name == "ScriptedRevocationUser"
+    )  # fmt: skip
+    assert [b.id for b in cls.bases if isinstance(b, ast.Name)] == ["AskUser"]
+    assert any(
+        isinstance(f, ast.FunctionDef) and f.name == "on_stop" for f in cls.body
+    )

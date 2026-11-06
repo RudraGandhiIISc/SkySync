@@ -3,6 +3,7 @@
 # Stack parts start a serving stack with their own settings, warm a worker,
 # run their workloads (Locust inside this job) and stop:
 #   fresh    FR-5 freshness replay, then FR-3 100 scripted revocations
+#   revoke   the FR-3 revocations alone
 #   fr7      W1 x3 with the answer cache off, prefix caching on, then off
 #   nfr1     steady x3 with Qwen3-8B (NFR-1)
 #   cold     20 scripted cold starts each for Qwen3-4B, Qwen3-8B, Qwen3-8B-AWQ
@@ -90,6 +91,8 @@ for p in $PARTS; do
       run=$(ls -d "$BASE"/fresh/rep1/*-freshness 2>/dev/null | head -1)
       [ -n "$run" ] && uv run python -m eval.freshness_check "$run" "$BASE/fresh/serve" \
         "$ASKIISC_STATE_DIR/versions.db" "$BASE/fresh/report"
+      stack revocations warm 1 "ASKIISC_MODEL=qwen3-8b-awq" revocations || failed=$((failed + 1)) ;;
+    revoke)
       stack revocations warm 1 "ASKIISC_MODEL=qwen3-8b-awq" revocations || failed=$((failed + 1)) ;;
     fr7)
       stack fr7-prefix-on warm 3 "ASKIISC_MODEL=qwen3-8b-awq ASKIISC_ANSWER_CACHE=off ASKIISC_PREFIX_CACHE=on" w1 || failed=$((failed + 1))

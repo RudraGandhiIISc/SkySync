@@ -105,3 +105,17 @@ def test_check_and_main_write_the_report(tmp_path: Path) -> None:
     assert main([str(locust), str(serve), str(db), str(out)]) == 0
     saved = json.loads((out / "freshness.json").read_text())
     assert saved["as_of_ok"] == 1  # only f-01 v1 exists in this store
+
+
+def test_replacement_times_come_from_the_version_store() -> None:
+    # Regression (run 2143): the publish event is logged before the server
+    # commits the revision (about 4 s later), so publish times made every
+    # as-of lookup miss and counted current answers as stale.
+    from eval.freshness_check import as_of_checks, replaced_in
+
+    versions = InMemoryVersionStore()
+    versions.publish(DocId("f-01"), DRAFT, 104.0, "a")  # commit after 100
+    versions.publish(DocId("f-01"), DRAFT, 144.0, "b")  # commit after 140
+    assert replaced_in(versions, {"f-01"}) == {("f-01", 1): 144.0}
+    pubs = publishes([pub(100.0, "f-01", 1, "F1"), pub(140.0, "f-01", 2, "F2")])
+    assert [c["ok"] for c in as_of_checks(pubs, versions)] == [True, True]

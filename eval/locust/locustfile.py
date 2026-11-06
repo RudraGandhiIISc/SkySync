@@ -717,25 +717,54 @@ class RevisionUser(AskUser):
         RESULTS.count("revisions_stale")
 
 
-class ScriptedRevocationUser(RevocationUser):
+class ScriptedRevocationUser(AskUser):
     """E1: 100 scripted revocations, ten at a time on different documents.
 
-    The same cycle as RevocationUser, probing every second for 75 s, until
-    REVOCATIONS_TOTAL cycles have run. Each cycle's time from the revoke to
-    the last answer that still cited the document goes to samples.json
-    (FR-3: at most 60 s).
+    Each cycle checks a reader is cited the document, revokes it, probes
+    every second for 75 s and restores it. The run ends once
+    REVOCATIONS_TOTAL cycles have completed and none is in flight. A
+    document a user revoked is always restored, at the latest when the
+    user stops. Each cycle's time from the revoke to the last answer that
+    still cited the document goes to samples.json (FR-3: at most 60 s).
+
+    It is not a RevocationUser: Locust also runs a base class's tasks, and
+    that uncoordinated cycle revoked the same documents at once (run 2143).
     """
 
     fixed_count = 10
     wait_time = constant(2)
     PROBE_S = 1.0
     WATCH_S = 75.0
+    MAX_ATTEMPTS = 400
+
+    def account_filter(self, u: dict[str, Any]) -> bool:  # type: ignore[override]
+        """An institute admin (may manage every document)."""
+        return bool(u["role"] == "admin" and u["department"] == "institute")
+
+    def on_start(self) -> None:
+        """Logs in; nothing revoked yet."""
+        super().on_start()
+        self.revoked: dict[str, dict[str, Any]] = {}
+
+    def on_stop(self) -> None:
+        """Restores anything this user revoked and did not restore."""
+        for doc, policy in list(self.revoked.items()):
+            self._restore(doc, policy)
+        super().on_stop()
+
+    def _restore(self, doc: str, policy: dict[str, Any]) -> None:
+        self.client.put(
+            f"/api/admin/policies/{doc}", json=policy, headers=HDR,
+            name="policy restore",
+        )  # fmt: skip
+        self.revoked.pop(doc, None)
 
     @task
     def revoke_and_watch(self) -> None:
         """One revocation cycle on a document no other user is revoking."""
-        if RESULTS.counts["revocation_cycles"] >= REVOCATIONS_TOTAL:
-            if not REVOKING:  # every cycle done: end the run, not idle on
+        done = RESULTS.counts["revocations"] >= REVOCATIONS_TOTAL
+        if done or RESULTS.counts["revocation_cycles"] >= self.MAX_ATTEMPTS:
+            if not REVOKING:  # nothing in flight: end the run, not idle on
                 self.environment.runner.quit()
             gevent.sleep(5)
             return
@@ -781,6 +810,7 @@ class ScriptedRevocationUser(RevocationUser):
             RESULTS.count("revocation_skipped")
             return
         policy = {k: v for k, v in saved.json().items() if k != "doc_id"}
+        self.revoked[doc] = policy
         self.client.delete(
             f"/api/admin/policies/{doc}", headers=HDR, name="policy revoke"
         )
@@ -791,10 +821,7 @@ class ScriptedRevocationUser(RevocationUser):
                     last_seen = time.time() - revoked
                 gevent.sleep(self.PROBE_S)
         finally:
-            self.client.put(
-                f"/api/admin/policies/{doc}", json=policy, headers=HDR,
-                name="policy restore",
-            )  # fmt: skip
+            self._restore(doc, policy)
         RESULTS.sample("revocation_last_seen_s", last_seen)
         RESULTS.event(
             {"kind": "revocation", "doc": doc, "last_seen_s": last_seen}
