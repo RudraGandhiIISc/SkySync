@@ -360,17 +360,36 @@ def fr7_section(job: str) -> list[str]:
     on_t, on_hit, on_all = rows["on"]
     off_t, _, off_all = rows["off"]
     drop = None if not (on_t and off_t) else 100 * (1 - on_t / off_t)
+    v_on, n_on = vllm_first_token(base / "fr7-prefix-on" / "serve")
+    v_off, n_off = vllm_first_token(base / "fr7-prefix-off" / "serve")
+    v_drop = None if not (v_on and v_off) else 100 * (1 - v_on / v_off)
     out += [
         "| Check | Target | Measured | Verdict |",
         "|---|---|---|---|",
         f"| vLLM prefix-cache hit rate, prefix caching on (median of logged values) | at least 50% | {fmt(on_hit)}% | {'pass' if (on_hit or 0) >= 50 else 'fail'} |",  # noqa: PLR2004
         f"| p95 first token, on against off (median of 3 runs) | at least 25% lower | {fmt(on_t, 0)} ms against {fmt(off_t, 0)} ms: {fmt(drop)}% lower | {'pass' if (drop or 0) >= 25 else 'fail'} |",  # noqa: PLR2004
+        f"| p95 first token from vLLM (audit `first_token_ms`: dispatch to first token), on against off | at least 25% lower | {fmt(v_on, 0)} ms against {fmt(v_off, 0)} ms: {fmt(v_drop)}% lower ({n_on:,} and {n_off:,} generated answers) | {'pass' if (v_drop or 0) >= 25 else 'fail'} |",  # noqa: PLR2004
+        "",
+        "The client's first token includes retrieval (embedding, search and",
+        "reranking, 1 to 2 s at p95), which prefix caching does not touch;",
+        "vLLM's own first token is what the cache changes. Both are shown;",
+        "the PRD row does not say where first token is measured.",
         "",
         f"Each run's p95 first token (ms): on {', '.join(fmt(x, 0) for x in on_all)}; off {', '.join(fmt(x, 0) for x in off_all)}.",
         f"Raw files: `{base}/fr7-prefix-on/`, `{base}/fr7-prefix-off/`.",
         "",
     ]  # fmt: skip
     return out
+
+
+def vllm_first_token(serve: Path) -> tuple[float | None, int]:
+    """p95 of vLLM's first token over generated answers in an audit store."""
+    rows = [
+        r["latency"]["first_token_ms"] for r in read_lines(serve / "audit.jsonl")
+        if r["decision"] in ("answered", "abstained") and not r.get("cache_hit")
+        and r["latency"]["first_token_ms"] > 0
+    ]  # fmt: skip
+    return (percentile(rows, 0.95) if rows else None), len(rows)
 
 
 def nfr1_section(job: str) -> list[str]:

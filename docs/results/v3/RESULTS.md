@@ -72,15 +72,37 @@ and `/data4/muthangiv/askiisc/results/fr6/2134/<arm>/serve/` (`responses.jsonl`,
 
 ## FR-5: freshness (E5) and FR-3: revocation (E1)
 
-Freshness replay: not run.
+| Check | Target | Measured |
+|---|---|---|
+| Revisions replayed | 60 across 20 documents | 60 across 20 |
+| Time to demotion (s), p50 / p95 / max | | 16.9 / 43.8 / 99.3 (n=60) |
+| Answers using a superseded version without the flag (audit store) | 0 | 266 of 278 that used one |
+| Answers citing a superseded version without the flag | 0 | 2 of 2899 answers |
+| As-of lookups correct at the checkpoints | all | 60 of 60 |
 
-Scripted revocations: not run.
+| Check | Target | Measured |
+|---|---|---|
+| Scripted revocations | 100 | 23 |
+| Last citation after revoking (s), p99 / max | at most 60 | 8.5 / 8.5 |
+| Revocations still cited after 60 s | 0 | 0 |
 
 Raw files: `/data4/muthangiv/askiisc/results/v3/2143/fresh/`, `/data4/muthangiv/askiisc/results/v3/2143/revocations/`.
 
 ## FR-7: prefix caching under W1 (answer cache off)
 
-not run.
+| Check | Target | Measured | Verdict |
+|---|---|---|---|
+| vLLM prefix-cache hit rate, prefix caching on (median of logged values) | at least 50% | 65.9% | pass |
+| p95 first token, on against off (median of 3 runs) | at least 25% lower | 2,500 ms against 2,700 ms: 7.4% lower | fail |
+| p95 first token from vLLM (audit `first_token_ms`: dispatch to first token), on against off | at least 25% lower | 935 ms against 1,529 ms: 38.9% lower (3,831 and 2,922 generated answers) | pass |
+
+The client's first token includes retrieval (embedding, search and
+reranking, 1 to 2 s at p95), which prefix caching does not touch;
+vLLM's own first token is what the cache changes. Both are shown;
+the PRD row does not say where first token is measured.
+
+Each run's p95 first token (ms): on 2,300, 2,500, 3,100; off 2,700, 2,700, 2,800.
+Raw files: `/data4/muthangiv/askiisc/results/v3/2143/fr7-prefix-on/`, `/data4/muthangiv/askiisc/results/v3/2143/fr7-prefix-off/`.
 
 ## NFR-1: latency with Qwen3-8B (`steady`, 60 users)
 
