@@ -93,7 +93,7 @@ faulthandler_timeout = 300
 asyncio_default_fixture_loop_scope = "function"
 markers = [
     "unit: fast hermetic tests (default)",
-    "integration: real service binaries from deploy/local/services.sh",
+    "integration: real service binaries (redis-server on PATH)",
     "e2e: full stack with the fake LLM",
     "perf: performance thresholds",
     "security: security suites",

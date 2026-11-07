@@ -8,6 +8,21 @@ It runs on the CSA `automation` server through Slurm (3x H200, no
 containers, no root). The corpus, index, users, accounts and model weights
 live in `/data4/muthangiv/askiisc` on the server, never in this repository.
 
+## Try it without a GPU (5 minutes)
+
+```bash
+uv sync --locked
+uv run python -m tools.ui_preview 18000
+```
+
+Open http://127.0.0.1:18000 and sign in as `u_cds_stu` (CDS student),
+`u_csa_stu` (CSA student, sees different documents), `u_cds_admin`
+(department admin) or `u_admin` (institute admin), password
+`Correct-horse-9`. This runs the real web app,
+gateway API and access control on a simulated model, sample documents and
+test users, so you can try the UI, the API and who-sees-what without the
+cluster. Answers come from the simulated model, not a real LLM.
+
 ## Team SkySync
 
 | Member | SR | E-mail |
@@ -50,6 +65,9 @@ Milvus Lite, no network):
 ```bash
 uv sync --locked && make all     # format check, lint, mypy, unit tests, audit
 ```
+
+`make test-int` also needs a `redis-server` binary on the PATH
+(`sbatch slurm/fetch_services.sh` builds one, or `apt install redis-server`).
 
 ## Use
 

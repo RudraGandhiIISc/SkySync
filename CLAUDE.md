@@ -77,7 +77,7 @@ tests/            unit, integration, e2e, perf, security, regression, conformanc
 ## Testing rules
 
 - Write the test first or together with the code. A change without a test is not done.
-- Tests are hermetic: no internet, no GPU. Use the fake LLM server (`llm/fake_server.py`), Milvus Lite, in-memory fakes and `FakeClock`. Unit tests never start a service binary; integration tests get them from `deploy/local/services.sh` on random ports.
+- Tests are hermetic: no internet, no GPU. Use the fake LLM server (`llm/fake_server.py`), Milvus Lite, in-memory fakes and `FakeClock`. Unit tests never start a service binary; integration tests start the real binaries (redis-server from `slurm/fetch_services.sh`) on random ports in `tests/integration/conftest.py`.
 - Coverage: at least 90% overall; 100% on `access/`, `gateway/limits.py`, `gateway/drr.py` and `autoscaler/policy.py`.
 - Every bug fix adds a regression test that failed before the fix.
 - Do not edit a test, threshold or golden file to make a failure pass. If a target cannot be met, stop and report it.
