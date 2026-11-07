@@ -17,8 +17,8 @@ file under `/data4/muthangiv/askiisc/results/`.
 - **Answer quality:** Qwen3-8B answers 84.5% of 400 edition-aware
   questions correctly, citations 97.7% correct (NFR-7: 80% and 90%).
 - **Quality gate:** green on 2026-11-07 from the repository's new place,
-  `/data4/muthangiv/AskIISc/ask-iisc` (job 2173: format, lint, mypy
-  --strict, 1,137 unit and conformance tests, coverage above 97%,
+  `/data4/muthangiv/AskIISc/ask-iisc` (job 2188: format, lint, mypy
+  --strict, 1,138 unit and conformance tests, coverage above 97%,
   integration, e2e, security, regression).
 - **v3 runs (2026-11-06):** results in
   [results/v3/RESULTS.md](results/v3/RESULTS.md), built from the raw
