@@ -418,6 +418,13 @@ def nfr1_section(job: str) -> list[str]:
     ]  # fmt: skip
 
 
+def _cold_verdict(ttft: list[float], load_s: list[float], limit: int) -> str:
+    """Pass or fail, unless no GPU worker ever started (cards full)."""
+    if not load_s:
+        return "not measured: no GPU worker started"
+    return "pass" if ttft and max(ttft) <= limit else "fail"
+
+
 def cold_section(job: str) -> list[str]:
     """NFR-2 / FR-10: 20 scripted cold starts per size."""
     targets = {
@@ -448,7 +455,7 @@ def cold_section(job: str) -> list[str]:
             if w.get("acquired_at")
         ]
         rows.append(
-            f"| {model} | {len(events)} | {sum(e['answered'] for e in events)} | {fmt(med(acq), 2)} | {fmt(med(load_s))} / {fmt(max(load_s, default=None))} | {fmt(med(ttft))} / {fmt(max(ttft, default=None))} | at most {limit} s | {'pass' if ttft and max(ttft) <= limit else 'fail'} |"
+            f"| {model} | {len(events)} | {sum(e['answered'] for e in events)} | {fmt(med(acq), 2)} | {fmt(med(load_s))} / {fmt(max(load_s, default=None))} | {fmt(med(ttft))} / {fmt(max(ttft, default=None))} | at most {limit} s | {_cold_verdict(ttft, load_s, limit)} |"
         )
     if not rows:
         return [*out, f"{NOT_RUN}.", ""]

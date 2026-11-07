@@ -55,3 +55,32 @@ def test_hit_rates_read_only_busy_log_lines(tmp_path: Path) -> None:
     )
     assert v3.hit_rates(log) == [61.5]
     assert v3.hit_rates(tmp_path / "missing.log") == []
+
+
+def test_a_cold_run_without_any_worker_is_not_a_fail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(v3, "DATA", tmp_path)
+    for model, workers in (
+        ("qwen3-4b-instruct-2507", []),  # every card full: none started
+        (
+            "qwen3-8b",
+            [{"requested_at": 100.0, "acquired_at": 100.5, "ready_at": 148.0}],
+        ),  # fmt: skip
+    ):
+        base = tmp_path / "v3" / "7" / f"cold-{model}"
+        (base / "rep1" / "7-cold20").mkdir(parents=True)
+        (base / "serve").mkdir()
+        (base / "serve" / "workers.json").write_text(json.dumps(workers))
+        answered = bool(workers)
+        events = [
+            {"kind": "cold_start", "answered": answered,
+             "ttft_s": 50.0 if answered else None}
+            for _ in range(20)
+        ]  # fmt: skip
+        (base / "rep1" / "7-cold20" / "events.jsonl").write_text(
+            "\n".join(json.dumps(e) for e in events)
+        )
+    rows = [r for r in v3.cold_section("7") if r.startswith("| qwen3")]
+    assert rows[0].endswith("| not measured: no GPU worker started |")
+    assert rows[1].endswith("| pass |")

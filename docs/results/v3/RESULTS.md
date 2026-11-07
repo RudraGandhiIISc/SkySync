@@ -110,11 +110,20 @@ not run.
 
 ## NFR-2 and FR-10: 20 scripted cold starts per size (E3 c)
 
-not run.
+| Model | Cold starts | Answered | Acquire (s), median | Weight load (s), median / max | First token (s), median / max | Target | Verdict |
+|---|---|---|---|---|---|---|---|
+| qwen3-4b-instruct-2507 | 20 | 0 | n/a | n/a / n/a | n/a / n/a | at most 90 s | not measured: no GPU worker started |
+| qwen3-8b | 20 | 17 | 0.00 | 48.2 / 90.2 | 49.9 / 91.4 | at most 150 s | pass |
+
+Acquisition is starting a vLLM process on a pinned card (R-1: no
+node allocation on this server). Raw files: `/data4/muthangiv/askiisc/results/v3/2143/cold-<model>/`.
 
 ## FR-8: replacement models and KV-cache room at 24 GB
 
-Smoke tests: not run.
+| Model | Started | Load (s) | Reply |
+|---|---|---|---|
+| Falcon3-3B-Instruct | yes | 121 | 'Hello! How can I assist you today?' |
+| Falcon3-7B-Instruct | yes | 206 | 'Hello!' |
 
 KV-cache room at one fixed budget (`--gpu-memory-utilization 0.17`,
 24 GiB of the card), decided 2026-11-05. Target: each 4-bit model
