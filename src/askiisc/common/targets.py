@@ -1,4 +1,4 @@
-"""Every numeric target from the PRD (docs/PRD.md sections 4 and 5).
+"""Every numeric target from the PRD (PRD.md sections 4 and 5).
 
 Code and tests import these names instead of repeating the numbers.
 """

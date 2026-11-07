@@ -2,7 +2,7 @@
 
 > **Update 2026-10-21:** the search bottleneck behind the NFR-1, NFR-4 and NFR-10 failures is fixed (search p95 840 ms → 18.5 ms). Those rows are re-measured with Locust next; see [NEXT_STEPS.md](../../../NEXT_STEPS.md) section 1. The numbers below are unchanged from the baseline run.
 
-Every functional (FR-1 to FR-12) and non-functional (NFR-1 to NFR-10) requirement of `docs/PRD.md`, measured on the CSA automation server on 2026-10-19/20, with one model.
+Every functional (FR-1 to FR-12) and non-functional (NFR-1 to NFR-10) requirement of `PRD.md`, measured on the CSA automation server on 2026-10-19/20, with one model.
 
 Each folder has a README with:
 - the requirement;

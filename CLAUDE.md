@@ -1,6 +1,6 @@
 # CLAUDE.md: Ask IISc
 
-Multi-tenant retrieval-augmented question answering over versioned IISc documents, on a shared departmental GPU cluster of **at most 2 GPU nodes**. Team SkySync, DS252 Cloud Computing. The full requirements are in `docs/PRD.md`; how it works is in `docs/ARCHITECTURE.md` and the current state in `docs/STATUS.md`. Read the PRD row for any FR or NFR before changing code that serves it.
+Multi-tenant retrieval-augmented question answering over versioned IISc documents, on a shared departmental GPU cluster of **at most 2 GPU nodes**. Team SkySync, DS252 Cloud Computing. The full requirements are in `PRD.md`; how it works is in `docs/ARCHITECTURE.md` and the current state in `docs/STATUS.md`. Read the PRD row for any FR or NFR before changing code that serves it.
 
 Everything is developed, tested and run on the CSA `automation` server (Slurm, one node with 3x H200 NVL, no Docker, no Kubernetes, no sudo). How each PRD component runs there is in `docs/OPERATIONS.md`; read it before touching `deploy/`, `slurm/`, `autoscaler/pool.py` or anything that starts a process. A PRD "GPU node" is a **GPU worker** here: one `vllm serve` process pinned to one H200.
 

@@ -8,7 +8,50 @@ It runs on the CSA `automation` server through Slurm (3x H200, no
 containers, no root). The corpus, index, users, accounts and model weights
 live in `/data4/muthangiv/askiisc` on the server, never in this repository.
 
-## Start
+## Team SkySync
+
+| Member | SR | E-mail |
+|---|---|---|
+| Rudra Kumar Gandhi | 28638 | rudragandhi@iisc.ac.in |
+| Muthangi Vighnesh | 26224 | muthangiv@iisc.ac.in |
+| Mohammad Haris | 26679 | harism@iisc.ac.in |
+
+Requirements: [PRD.md](PRD.md). Developer guide (what each part of the
+code does): [dev.md](dev.md).
+
+## Install
+
+Needs a Linux Slurm cluster with NVIDIA GPUs (built for one node with
+3x H200; no Docker, Kubernetes or root), `git`, and
+[`uv`](https://docs.astral.sh/uv/) on the PATH. `uv` installs Python 3.11
+(app) and 3.12 (vLLM). Run every `sbatch` from the repository root; paths
+are set in `slurm/lib.sh` (`ASKIISC_DATA`, `ASKIISC_SCRATCH`, `HF_HOME`).
+
+```bash
+git clone https://github.com/RudraGandhiIISc/SkySync.git ask-iisc && cd ask-iisc
+sbatch slurm/setup_env.sh        # project venv (3.11) and serve venv (vLLM, 3.12)
+sbatch slurm/fetch_services.sh   # Redis, gitleaks, Prometheus, Grafana, Loki, Alloy
+sbatch slurm/fetch_models.sh Qwen/Qwen3-8B BAAI/bge-m3 BAAI/bge-reranker-v2-m3
+# corpus and index (hours): crawl, past editions, catalogue, embed + store
+sbatch slurm/crawl.sh && sbatch slurm/archive.sh && sbatch slurm/catalog.sh
+sbatch --partition=low_2h_1gpu --export=ALL,EMBED_DEVICE=cuda slurm/ingest.sh
+# accounts: load-test users and the first institute admin
+sbatch --partition=low_2h_1gpu slurm/run.sh uv run python -m askiisc.web.cli seed-locust
+sbatch --partition=low_2h_1gpu slurm/run.sh uv run python -m askiisc.web.cli add-institute-admin <e-mail>
+```
+
+Secrets (Grafana, Prometheus, Locust, Loki passwords; SMTP) are created on
+first start under `$ASKIISC_DATA/private/app/`; see
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#2-before-the-first-deployment).
+
+Without a GPU you can still install and run the unit tests (fake LLM,
+Milvus Lite, no network):
+
+```bash
+uv sync --locked && make all     # format check, lint, mypy, unit tests, audit
+```
+
+## Use
 
 ```bash
 sbatch slurm/serve.sh          # chat app, admin dashboard, Grafana, Prometheus, Locust; Qwen3-8B
@@ -38,7 +81,8 @@ sbatch --wait --partition=low_2h_1gpu slurm/gate.sh all test-int test-e2e test-s
 | [docs/STATUS.md](docs/STATUS.md) | results, requirement status, deviations from the PRD, next steps |
 | [docs/DEMO.md](docs/DEMO.md) | a scripted live demo |
 | [docs/security.md](docs/security.md) | security controls and the tests that hold them |
-| [docs/PRD.md](docs/PRD.md) | the requirements |
+| [PRD.md](PRD.md) | the requirements (original plan) |
+| [dev.md](dev.md) | developer guide: what each part of the code does, testing, conventions |
 | [docs/results/](docs/results/) | measured evidence per requirement |
 | [CLAUDE.md](CLAUDE.md) | rules for working in this repository |
 

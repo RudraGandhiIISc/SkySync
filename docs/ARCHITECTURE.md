@@ -3,7 +3,7 @@
 How Ask IISc works: the parts, the path of a question, the path of a
 document, the access model, and where each piece of code lives. Running it
 is in [OPERATIONS.md](OPERATIONS.md); the requirements are in
-[PRD.md](PRD.md).
+[PRD.md](../PRD.md).
 
 ## 1. What it does
 
