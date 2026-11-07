@@ -3,7 +3,7 @@
 How to set up, build, run, test and monitor Ask IISc on the CSA
 `automation` server. How the parts work is in
 [ARCHITECTURE.md](ARCHITECTURE.md); a demo script is in [DEMO.md](DEMO.md).
-Every command runs from `/data2/home/muthangiv/AskIISc/ask-iisc`.
+Every command runs from `/data4/muthangiv/AskIISc/ask-iisc`.
 
 ## 1. The server
 
@@ -13,7 +13,7 @@ Every command runs from `/data2/home/muthangiv/AskIISc/ask-iisc`.
 | GPUs | 3x H200 NVL (143,771 MiB each), shared with other users |
 | GPU allocation | Slurm reserves none (`--gres` is rejected). Scripts pin a card themselves (`pick_gpu` in `slurm/lib.sh`) and size vLLM's memory from the card's free memory |
 | Containers, root | None: everything runs as user-space processes inside Slurm jobs |
-| Storage | `/data2` home and scratch together: 50 GB soft / 60 GB hard. `/data4/muthangiv`: no quota (data, weights, results) |
+| Storage | `/data2` home and scratch together: 50 GB soft / 60 GB hard (venvs, live SQLite databases). `/data4/muthangiv`: no quota (this repository, data, weights, results) |
 
 **Rules every job follows.**
 

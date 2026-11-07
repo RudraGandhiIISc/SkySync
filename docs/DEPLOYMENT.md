@@ -2,7 +2,7 @@
 
 How to put Ask IISc into service on the CSA `automation` server, keep it
 running, update it and roll it back. Each step is a command to run from the
-repository root (`/data2/home/muthangiv/AskIISc/ask-iisc`). The details
+repository root (`/data4/muthangiv/AskIISc/ask-iisc`). The details
 behind each step are in [OPERATIONS.md](OPERATIONS.md); the design is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -14,7 +14,7 @@ its Slurm job; people reach it through an SSH tunnel.
 
 | Part | Where | In git |
 |---|---|---|
-| Code, job scripts, dashboards | `/data2/home/muthangiv/AskIISc/ask-iisc` | yes |
+| Code, job scripts, dashboards | `/data4/muthangiv/AskIISc/ask-iisc` | yes |
 | Virtual environments | `/data2/scratch/muthangiv/askiisc/` | no |
 | Model weights | `/data4/muthangiv/huggingface/` | no |
 | Corpus and index (`corpus-v3`, `state-v4`) | `/data4/muthangiv/askiisc/` | no |

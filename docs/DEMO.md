@@ -4,7 +4,7 @@ How to run a live demo of Ask IISc: the chat app, access control, the admin dash
 
 Related: [ARCHITECTURE.md](ARCHITECTURE.md) (how it works), [OPERATIONS.md](OPERATIONS.md) (running it), [STATUS.md](STATUS.md) (results and pending work).
 
-All commands run from `/data2/home/muthangiv/AskIISc/ask-iisc` on the server unless they say "laptop".
+All commands run from `/data4/muthangiv/AskIISc/ask-iisc` on the server unless they say "laptop".
 
 ---
 

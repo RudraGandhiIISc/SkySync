@@ -108,7 +108,7 @@ tests/            unit, integration, e2e, perf, security, regression, conformanc
 - Pin GPUs yourself: Slurm reserves none (`--gres` is rejected). Use `pick_gpu` in `slurm/lib.sh` or the same logic in `ProcessPool`, and size `--gpu-memory-utilization` from the card's free memory.
 - Always set `--time` and `--mem`. CPU-only work goes to `dev`, GPU work to a GPU partition; CPU services a GPU run needs start inside that GPU job.
 - Quiet periods inside a run stay under 30 minutes (the idle-GPU and idle-CPU monitors kill jobs).
-- Storage: the repo and venvs on `/data2` (50 GB shared quota); weights, run state and raw results on `/data4/muthangiv` (`HF_HOME=/data4/muthangiv/huggingface`).
+- Storage: the repo on `/data4/muthangiv/AskIISc/ask-iisc`; the venvs and the live SQLite databases on `/data2/scratch/muthangiv/askiisc` (local disk, 50 GB shared quota; SQLite on the NFS drive is about 30x slower); weights, run state and raw results on `/data4/muthangiv` (`HF_HOME=/data4/muthangiv/huggingface`).
 - Runs are offline (`HF_HUB_OFFLINE=1`). Download weights beforehand with `slurm/fetch_models.sh`.
 - Ask before submitting any job longer than a smoke test or a gate.
 
