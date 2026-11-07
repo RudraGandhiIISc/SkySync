@@ -1,6 +1,6 @@
 # Status
 
-Where Ask IISc stands on 2026-11-06, what was measured, how it differs from
+Where Ask IISc stands on 2026-11-07, what was measured, how it differs from
 the PRD, and what is left. Every number comes from a Slurm log or a results
 file under `/data4/muthangiv/askiisc/results/`.
 
@@ -16,9 +16,10 @@ file under `/data4/muthangiv/askiisc/results/`.
   restricted test documents; 574,672 chunks.
 - **Answer quality:** Qwen3-8B answers 84.5% of 400 edition-aware
   questions correctly, citations 97.7% correct (NFR-7: 80% and 90%).
-- **Quality gate:** green on 2026-11-06 (job 2154: integration, e2e,
-  security, regression; job 2156 on the last fix: format, lint, mypy
-  --strict, 1,137 unit and conformance tests, coverage above 97%).
+- **Quality gate:** green on 2026-11-07 from the repository's new place,
+  `/data4/muthangiv/AskIISc/ask-iisc` (job 2173: format, lint, mypy
+  --strict, 1,137 unit and conformance tests, coverage above 97%,
+  integration, e2e, security, regression).
 - **v3 runs (2026-11-06):** results in
   [results/v3/RESULTS.md](results/v3/RESULTS.md), built from the raw
   files by `tools/v3_results.py`. All on GPU 0 shared with other users'
@@ -40,17 +41,17 @@ Measured in the live-v2 round (2026-10-26, Qwen3-4B, 8 chunks:
 |---|---|---|
 | FR-1 cited answers, refusals | pass | |
 | FR-2 no forbidden chunk retrieved | pass | recall@8 1.000, 0 leaks in 10,000 probes; 0 leaks in the 2026-10-27 live run |
-| FR-3 revocation within 60 s | pass (7 revocations) | 3.1 s (live-v2), 7.4 s (2026-10-27). E1's 100 scripted revocations: the 2026-11-06 run (job 2143) is invalid (a test bug ended it after 23 cycles); re-run queued (job 2156) |
+| FR-3 revocation within 60 s | pass (7 revocations) | 3.1 s (live-v2), 7.4 s (2026-10-27). E1's 100 scripted revocations: the 2026-11-06 run (job 2143) is invalid (a test bug ended it after 23 cycles); re-run still to do (section 6) |
 | FR-4 access service failover | pass | denies while down, never answers unchecked |
-| FR-5 versions and staleness | **open** | citations name the version that replaced them (`superseded_by`) and answers carry `staleness_flag`. Replay of 60 revisions over 20 documents (job 2143): as-of correct at 60 of 60 checkpoints, demotion p50 17 s, p95 44 s, max 99 s; but 266 answers from the answer cache used a superseded version without the flag (target 0). Fixed (cache generation bumped again when a revision becomes visible); re-run queued (job 2156) |
+| FR-5 versions and staleness | **open** | citations name the version that replaced them (`superseded_by`) and answers carry `staleness_flag`. Replay of 60 revisions over 20 documents (job 2143): as-of correct at 60 of 60 checkpoints, demotion p50 17 s, p95 44 s, max 99 s; but 266 answers from the answer cache used a superseded version without the flag (target 0). Fixed (cache generation bumped again when a revision becomes visible); re-run still to do (section 6) |
 | FR-6 429 within 50 ms at 3x load | **pass** (2026-11-06) | W2 at 3x, median of 3 (job 2134): 429 p99 24.3 ms at the serving node, accepted p95 4.1% lower than at 1x. Client 429 p99 72 to 90 ms. With admission off nothing collapsed at this load (82% answer-cache hits), so E4's collapse is not shown ([results/v3](results/v3/RESULTS.md)) |
 | FR-7 batching and prefix cache | pass at vLLM, **open** at the client | W1, answer cache off, 3 runs each (job 2143): prefix-cache hit rate 65.9% (target 50%); p95 first token 38.9% lower at vLLM (935 against 1,529 ms) but 7.4% lower at the client (2.5 against 2.7 s; retrieval before the model dominates). Where first token is measured is not decided |
 | FR-8 six models | pass | six models (section 4) through one client, switched by `ASKIISC_MODEL` only; all six measured 2026-11-03 ([results/fr8](results/fr8/README.md)) |
 | FR-9, FR-10 scaling, scale to zero | pass | 2 workers in 74 s, never above 2, back to 0 61 s after idle |
 | FR-11 fairness | **open** | quiet department 33% (≥ 20% met); busy department 67% (≤ 55% not met) |
 | FR-12 audit | pass (2026-11-05) | v3: 2,633 of 2,633 requests audited, 1,940 of 1,940 citations reproduced, 0 question strings in the store; latency breakdown per stage ([results/v3/FR-12](results/v3/FR-12/README.md), run 2099/2100, shared GPU) |
-| NFR-1 latency | **open** with 8B (3 runs running, job 2143) | Qwen3-8B, 12 chunks, `steady` 60 users (job 1818, 2026-10-27): p95 total 4.0 s, first token 1.7 s; embedding (p95 0.64 s) and reranking (0.88 s) before the model, vLLM's own first token 0.38 s |
-| NFR-2 cold start | pass | Qwen3-8B: worst first token 34.7 s (job 1819) |
+| NFR-1 latency | **open** with 8B (the v3 re-run did not start: no GPU room; section 6) | Qwen3-8B, 12 chunks, `steady` 60 users (job 1818, 2026-10-27): p95 total 4.0 s, first token 1.7 s; embedding (p95 0.64 s) and reranking (0.88 s) before the model, vLLM's own first token 0.38 s |
+| NFR-2 cold start | pass | Qwen3-8B: worst first token 34.7 s (job 1819); v3, 20 scripted cold starts (job 2143): 17 answered, first token median 49.9 s, worst 91.4 s (at most 150 s) |
 | NFR-3 throughput | pass | 5,195 tokens/s at concurrency 64 (4B) |
 | NFR-4 search at scale | pass | |
 | NFR-5 4-hour soak with a node killed | **open** | not run |
@@ -113,15 +114,30 @@ What moved it from 63% (same pipeline on the uncleaned corpus):
 - **No TLS on the gateway** (reached only through the SSH tunnel); no
   packet capture (no root).
 
-## 6. What is left (2026-11-06)
+## 6. What is left (2026-11-07)
 
-**Running and queued.** Commands and parts: `slurm/v3_stack.sh`.
+**Runs stopped for lack of GPU memory.** Jobs 2143, 2161 and 2163
+(`slurm/v3_stack.sh`) were cancelled on 2026-11-06: other users' jobs
+filled GPUs 1 and 2 and left about 12 GB on GPU 0, so most model workers
+never started. Finished and kept (`results/v3/2143/`): the FR-5 replay
+(before the cache fix), FR-7 prefix cache on and off, Qwen3-8B's 20 cold
+starts, the Falcon3-3B and 7B smoke tests, E2 for Qwen3-4B. Still to run
+on a free card, in this order:
 
-| Job | What | Expected end |
+| Part | Requirement | GPU-h |
 |---|---|---|
-| 2143 (running) | NFR-1 (`steady` x3, Qwen3-8B); 20 scripted cold starts each for Qwen3-4B, Qwen3-8B, Qwen3-8B-AWQ (NFR-2, FR-10); Falcon3 3B, 7B, 7B-AWQ smoke tests and the KV comparison at 24 GB (FR-8); E2, one W1 run per model | about 17:00 |
-| 2156 (queued) | FR-5 freshness replay again (checks the cache fix) and FR-3's 100 scripted revocations | about 18:30 |
-| 2124 (queued) | the standing serving job again (Qwen3-8B-AWQ, 1 worker, renews itself) | after 2156 |
+| `fresh` (replay again, then 100 revocations) | FR-5, FR-3 | 1.5 |
+| `nfr1` (`steady` x3, Qwen3-8B) | NFR-1 | 0.7 |
+| `cold` for Qwen3-4B and Qwen3-8B-AWQ (no worker started) | NFR-2, FR-10 | 1.7 |
+| `smoke` for Falcon3-7B-AWQ; `kv24` (none started) | FR-8 | 0.8 |
+| `e2` for the other five models | E2, NFR-1, NFR-6 | 4 |
+
+```bash
+sbatch --export=ALL,V3_PARTS="fresh nfr1 cold smoke kv24 e2",E2_REPS=1 slurm/v3_stack.sh
+```
+
+Stop the serving job first (one stack holds the ports) and queue it again
+behind this one.
 
 **Not scheduled.**
 
