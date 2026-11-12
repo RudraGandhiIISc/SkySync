@@ -53,6 +53,18 @@ trap 'stop; exit 1' TERM INT
 
 port() { python3 -c "import json;print(json.load(open('$CURRENT'))['ports']['web'])"; }
 
+# other_job_gpus: cards our other running jobs hold (the account may use at
+# most 2 cards at once, whichever jobs hold them).
+other_job_gpus() {
+  local pids="" j
+  for j in $(squeue -h -u "$USER" -t R -o %i); do
+    [ "$j" = "$SLURM_JOB_ID" ] && continue
+    pids="$pids $(scontrol listpids "$j" 2>/dev/null | awk 'NR > 1 {printf "%s ", $1}')"
+  done
+  nvidia-smi --query-compute-apps=pid,gpu_uuid --format=csv,noheader | tr -d ' ' \
+    | awk -F, -v pids=" $pids " 'index(pids, " " $1 " ") {print $2}' | sort -u | wc -l
+}
+
 # empty_gpu: the card with no other job's process and the least memory in
 # use (vLLM counts another process's growth during its profiling against
 # the KV budget, so the FR-8 comparison needs a quiet card).
@@ -131,8 +143,11 @@ for p in $PARTS; do
       stack fr7-prefix-off warm 3 "ASKIISC_MODEL=qwen3-8b-awq ASKIISC_ANSWER_CACHE=off ASKIISC_PREFIX_CACHE=off" w1 || failed=$((failed + 1)) ;;
     nfr1)
       # Up to 2 workers, as the serving job runs: at W1's 4.4 questions/s
-      # the autoscaler wants a second one (4 per worker).
-      stack nfr1 warm 3 "ASKIISC_MODEL=qwen3-8b ASKIISC_MAX_WORKERS=2" steady || failed=$((failed + 1)) ;;
+      # the autoscaler wants a second one (4 per worker). Only 1 while
+      # another of our jobs holds a card (2 cards per account).
+      n=2; [ "$(other_job_gpus)" -gt 0 ] && n=1
+      echo "nfr1: up to $n worker(s)"
+      stack nfr1 warm 3 "ASKIISC_MODEL=qwen3-8b ASKIISC_MAX_WORKERS=$n" steady || failed=$((failed + 1)) ;;
     cold)
       for m in qwen3-4b-instruct-2507 qwen3-8b qwen3-8b-awq; do
         stack "cold-$m" cold 1 "ASKIISC_MODEL=$m ASKIISC_IDLE_TIMEOUT_S=20" cold20 || failed=$((failed + 1))
