@@ -236,7 +236,7 @@ SCORECARD_SET = "edition-aware set"
 
 
 def record(summary: dict[str, Any], measurements: Path, source: str) -> Path:
-    """Writes the NFR-7 numbers of a grade for the admin scorecard.
+    """Writes the FR-1 and NFR-7 numbers of a grade for the scorecard.
 
     Args:
         summary: A summary.json written by this grader.
@@ -252,10 +252,13 @@ def record(summary: dict[str, Any], measurements: Path, source: str) -> Path:
         "strict_accuracy": summary["strict_accuracy"],
         "edition_correctness": summary["edition_correctness"],
     }
+    unanswerable = summary.get("by_type", {}).get("unanswerable", {})
+    if unanswerable.get("items"):
+        checks["abstain_unanswerable"] = unanswerable["abstained"]
     return write_measurement(
         measurements,
         "quality-judge",
-        "NFR-7",
+        "FR-1, NFR-7",
         checks,
         f"Grader ({SCORECARD_SET}, {summary.get('judge_model', 'none')})",
         time.time(),

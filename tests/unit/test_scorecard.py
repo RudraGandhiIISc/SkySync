@@ -70,9 +70,17 @@ def test_steady_run_sets_nfr1_and_nfr4() -> None:
         ],
     )
     rows = _rows([steady])
-    assert rows["NFR-1"].verdict == "fail"  # first token above 800 ms
+    # The first token is judged at the model server (scaling-steady), not
+    # at the client: without that measurement NFR-1 is pending.
+    assert rows["NFR-1"].verdict == "pending"
     assert "p95 answer time (ms): 2,900" in rows["NFR-1"].value
     assert rows["NFR-1"].source == "Locust 1-steady"
+    slow = _run("scaling-steady", checks={"first_token_p95_s": 0.9})
+    assert _rows([steady, slow])["NFR-1"].verdict == "fail"
+    fast = _run("scaling-steady", checks={"first_token_p95_s": 0.38})
+    nfr1 = _rows([steady, fast])["NFR-1"]
+    assert nfr1.verdict == "pass"
+    assert "first token at the model server (ms): 380" in nfr1.value
     assert rows["NFR-4"].verdict == "pending"  # search p95 not measured
     assert "0.2%" in rows["NFR-4"].value
     search = _run("scaling-steady", checks={"search_p95_s": 0.031})
@@ -186,8 +194,9 @@ def test_grader_and_benchmark_measurements_reach_the_scorecard(
     from eval.measurements import write_measurement
 
     path = write_measurement(
-        tmp_path, "quality-judge", "NFR-7",
-        {"judge_accuracy": 0.83, "judge_citation_support": 0.95},
+        tmp_path, "quality-judge", "FR-1, NFR-7",
+        {"judge_accuracy": 0.83, "judge_citation_support": 0.95,
+         "abstain_unanswerable": 0.7},
         "Grader", DAY,
     )  # fmt: skip
     judge = json.loads(path.read_text())
@@ -202,8 +211,10 @@ def test_grader_and_benchmark_measurements_reach_the_scorecard(
     assert rows["NFR-7"].verdict == "pass"
     assert "accuracy (judge): 0.830" in rows["NFR-7"].value
     assert rows["NFR-7"].source.startswith("Grader ")
-    assert rows["FR-1"].verdict == "fail"  # refusals below 90%
+    assert rows["FR-1"].verdict == "fail"  # refusals below 75%
     assert rows["NFR-3"].verdict == "pass"
+    judge["checks"]["abstain_unanswerable"] = 0.775
+    assert _rows([judge, rubric, bench])["FR-1"].verdict == "pass"
 
 
 def test_scaling_from_prometheus_series() -> None:
@@ -281,3 +292,34 @@ def test_nfr10_combines_leaks_and_access_latency() -> None:
         read_value(timing, {"path": ["checks", "filter_p99_s"], "scale": 1000})
         == 25.0
     )
+
+
+def test_first_token_at_the_model_server_from_audit_records(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    from eval.scaling import serving_first_token_p95
+
+    def row(t: float, ms: float, **extra: Any) -> str:
+        record = {
+            "time": t,
+            "decision": "answered",
+            "cache_hit": False,
+            "latency": {"first_token_ms": ms},
+            **extra,
+        }
+        return json.dumps(record)
+
+    audit = tmp_path / "audit.jsonl"
+    lines = [row(100 + i, 300 + i) for i in range(20)]
+    lines += [
+        row(50, 9000),  # before the run
+        row(110, 9000, cache_hit=True),  # no model call
+        row(111, 0),  # refused before the model
+        row(112, 9000, decision="error"),
+    ]
+    audit.write_text("\n".join(lines) + "\n")
+    assert serving_first_token_p95(audit, 100, 200) == 0.318
+    assert serving_first_token_p95(audit, 300, 400) is None
+    assert serving_first_token_p95(tmp_path / "missing.jsonl", 0, 1) is None

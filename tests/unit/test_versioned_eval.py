@@ -404,3 +404,22 @@ def test_a_grade_is_recorded_for_the_scorecard(tmp_path: Path) -> None:
         r for r in scorecard(load_test_runs(measurements)) if r.id == "NFR-7"
     )
     assert row.verdict == "pass"
+
+
+def test_scorecard_record_carries_the_fr1_refusal_rate(tmp_path: Path) -> None:
+    from eval.versioned.grade import record
+
+    summary = {
+        "accuracy": 0.845,
+        "citation_correctness": 0.9771,
+        "strict_accuracy": 0.7175,
+        "edition_correctness": 0.9568,
+        "by_type": {"unanswerable": {"items": 40, "abstained": 0.775}},
+        "judge_model": "granite-3.3-8b-instruct",
+    }
+    written = json.loads(record(summary, tmp_path, "grade.json").read_text())
+    assert written["requirements"] == "FR-1, NFR-7"
+    assert written["checks"]["abstain_unanswerable"] == 0.775
+    del summary["by_type"]
+    again = json.loads(record(summary, tmp_path, "grade.json").read_text())
+    assert "abstain_unanswerable" not in again["checks"]

@@ -105,33 +105,33 @@ FR-11:
       target: FR11_MIN_LIGHT_SHARE
       digits: 3
 FR-1:
-  - workload: quality-judge
-    checks:
-      - label: answers whose citations support them (judge)
-        value: {path: [checks, judge_citation_support]}
-        op: ">="
-        target: FR1_MIN_CITED_ANSWER_FRACTION
-        digits: 3
-  - workload: quality-rubric
-    checks:
-      - label: refusals of unanswerable questions
-        value: {path: [checks, abstain_unanswerable]}
-        op: ">="
-        target: FR1_MIN_ABSTAIN_FRACTION
-        digits: 3
-NFR-1:
-  workload: steady
+  workload: quality-judge
   checks:
-    - label: p95 answer time (ms)
-      value: {path: [by_request, "chat message", p95_ms]}
-      op: "<="
-      target: NFR1_P95_TOTAL_S
-      scale: 1000
-    - label: p95 first token (ms)
-      value: {path: [by_request, "chat message (first token)", p95_ms]}
-      op: "<="
-      target: NFR1_P95_TTFT_S
-      scale: 1000
+    - label: answers whose citations support them (judge)
+      value: {path: [checks, judge_citation_support]}
+      op: ">="
+      target: FR1_MIN_CITED_ANSWER_FRACTION
+      digits: 3
+    - label: refusals of unanswerable questions
+      value: {path: [checks, abstain_unanswerable]}
+      op: ">="
+      target: FR1_MIN_ABSTAIN_FRACTION
+      digits: 3
+NFR-1:
+  - workload: steady
+    checks:
+      - label: p95 answer time (ms)
+        value: {path: [by_request, "chat message", p95_ms]}
+        op: "<="
+        target: NFR1_P95_TOTAL_S
+        scale: 1000
+  - workload: scaling-steady
+    checks:
+      - label: p95 first token at the model server (ms)
+        value: {path: [checks, first_token_p95_s], scale: 1000}
+        op: "<="
+        target: NFR1_P95_TTFT_S
+        scale: 1000
 NFR-2:
   workload: cold-start
   checks:
