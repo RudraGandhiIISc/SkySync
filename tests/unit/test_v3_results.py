@@ -84,3 +84,44 @@ def test_a_cold_run_without_any_worker_is_not_a_fail(
     rows = [r for r in v3.cold_section("7") if r.startswith("| qwen3")]
     assert rows[0].endswith("| not measured: no GPU worker started |")
     assert rows[1].endswith("| pass |")
+
+
+def test_nfr1_judges_the_first_token_at_the_model_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(v3, "DATA", tmp_path)
+    base = tmp_path / "v3" / "9" / "nfr1"
+    (base / "serve").mkdir(parents=True)
+    audit = []
+    for k in (1, 2, 3):
+        run = base / f"rep{k}" / f"9-steady-{k}"
+        run.mkdir(parents=True)
+        start = 1000.0 * k
+        (run / "summary.json").write_text(
+            json.dumps({"started": start, "finished": start + 600,
+                        "requests": 1000, "failures": k})
+        )  # fmt: skip
+        (run / "locust_stats.csv").write_text(
+            "Type,Name,95%\n"
+            "POST,chat message,3200\n"
+            "SSE,chat message (first token),1700\n"
+        )
+        audit += [
+            {"time": start + i, "decision": "answered", "cache_hit": False,
+             "latency": {"first_token_ms": 400 + i}}
+            for i in range(100)
+        ]  # fmt: skip
+    (base / "serve" / "audit.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in audit)
+    )
+    page = "\n".join(v3.nfr1_section("9"))
+    assert "| p95 total (client) | at most 3,500 ms | 3,200 ms" in page
+    assert (
+        "| p95 first token at the model server | at most 800 ms | 494 ms (494, 494, 494) | pass |"
+        in page
+    )
+    assert "| p95 first token at the client (reported) | | 1,700 ms" in page
+    assert (
+        "| Errors (NFR-4) | at most 1% | 0.20% (0.10, 0.20, 0.30) | pass |"
+        in page
+    )

@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from eval.fr6_report import percentile, read_lines
+from eval.scaling import serving_first_token_p95
 
 from askiisc.common.config import data_dir
 from askiisc.observability.vllm_startup import parse
@@ -394,25 +395,43 @@ def vllm_first_token(serve: Path) -> tuple[float | None, int]:
 
 
 def nfr1_section(job: str) -> list[str]:
-    """NFR-1: steady x3 with Qwen3-8B."""
+    """NFR-1: steady x3 with Qwen3-8B.
+
+    Total time is the client's; the first token is judged at the model
+    server (the serving node's dispatch-to-first-token in its audit
+    records, PRD NFR-1), with the client's figure alongside.
+    """
     base = DATA / "v3" / job / "nfr1"
-    total, first = [], []
+    total, first, node, errors = [], [], [], []
     for k in (1, 2, 3):
         t = stats_row(base / f"rep{k}", "chat message")
         ft = stats_row(base / f"rep{k}", "chat message (first token)")
-        if t and ft:
+        run = next(
+            iter(sorted((base / f"rep{k}").glob("*/summary.json"))), None
+        )
+        summary = load(run) if run else None
+        if t and ft and summary:
             total.append(float(t["95%"]))
             first.append(float(ft["95%"]))
-    out = ["## NFR-1: latency with Qwen3-8B (`steady`, 60 users)", ""]
+            p95 = serving_first_token_p95(
+                base / "serve" / "audit.jsonl",
+                summary["started"],
+                summary["finished"],
+            )
+            node.append((p95 or 0.0) * 1000)
+            errors.append(summary["failures"] / max(1, summary["requests"]))
+    out = ["## NFR-1 and NFR-4: Qwen3-8B, `steady`, 60 users", ""]
     if not total:
         return [*out, f"{NOT_RUN}.", ""]
-    mt, mf = med(total), med(first)
+    mt, mf, mn, me = med(total), med(first), med(node), med(errors)
     return [
         *out,
         "| Check | Target | Median of 3 (each run) | Verdict |",
         "|---|---|---|---|",
-        f"| p95 total | at most 3,500 ms | {fmt(mt, 0)} ms ({', '.join(fmt(x, 0) for x in total)}) | {'pass' if mt <= 3500 else 'fail'} |",  # noqa: PLR2004
-        f"| p95 first token | at most 800 ms | {fmt(mf, 0)} ms ({', '.join(fmt(x, 0) for x in first)}) | {'pass' if mf <= 800 else 'fail'} |",  # noqa: PLR2004
+        f"| p95 total (client) | at most 3,500 ms | {fmt(mt, 0)} ms ({', '.join(fmt(x, 0) for x in total)}) | {'pass' if mt <= 3500 else 'fail'} |",  # noqa: PLR2004
+        f"| p95 first token at the model server | at most 800 ms | {fmt(mn, 0)} ms ({', '.join(fmt(x, 0) for x in node)}) | {'pass' if mn <= 800 else 'fail'} |",  # noqa: PLR2004
+        f"| p95 first token at the client (reported) | | {fmt(mf, 0)} ms ({', '.join(fmt(x, 0) for x in first)}) | |",
+        f"| Errors (NFR-4) | at most 1% | {fmt(100 * me, 2)}% ({', '.join(fmt(100 * x, 2) for x in errors)}) | {'pass' if me <= 0.01 else 'fail'} |",  # noqa: PLR2004
         "",
         f"Raw files: `{base}/`.",
         "",
