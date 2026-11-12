@@ -36,12 +36,14 @@ from deploy.serve import (
 )
 from deploy.stack import wait_http
 
+from askiisc.common.config import data_dir
+
 REPO = Path(__file__).resolve().parents[1]
-DATA = Path(os.environ.get("ASKIISC_DATA", "/data4/muthangiv/askiisc"))
+DATA = data_dir()
 LOCUST = DATA / "results" / "locust"
 MEASURED = DATA / "results" / "measurements"
 OUT = REPO / "docs" / "results" / "live-v2"
-TOOLS = Path("/data4/muthangiv/tools")
+TOOLS = DATA.parent / "tools"  # Node and Playwright
 DASHBOARD = "askiisc-main"
 SERIES = ("#2a78d6", "#eb6834", "#1baf7a", "#7d5cc6")  # validated order
 TARGET = "#d03b3b"

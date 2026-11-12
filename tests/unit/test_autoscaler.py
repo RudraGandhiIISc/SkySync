@@ -15,7 +15,12 @@ from askiisc.autoscaler.policy import (
     ScalingConfig,
     decide,
 )
-from askiisc.autoscaler.pool import FakeWorkerPool, PoolError
+from askiisc.autoscaler.pool import (
+    FakeWorkerPool,
+    NoGpuRoom,
+    PoolError,
+    Worker,
+)
 from askiisc.common.targets import (
     FR9_SCALE_OUT_SECONDS,
     FR10_RELEASE_AFTER_IDLE_SECONDS,
@@ -255,6 +260,52 @@ async def test_failed_start_is_counted_and_retried() -> None:
     assert sim.controller.failures == 1
     assert sim.ready_count() == 1
     assert sim.controller.endpoint().startswith("http://fake-")
+    await _stop(sim, tasks)
+
+
+class _FullPool(FakeWorkerPool):
+    """Every card is full (other users' jobs) until `full` is cleared."""
+
+    full = True
+
+    async def request_worker(self) -> Worker:
+        if self.full:
+            raise NoGpuRoom("no GPU with enough free memory")
+        return await super().request_worker()
+
+
+async def test_full_gpus_are_reported_and_retried_on_new_demand() -> None:
+    # FR-10: a held request learns at once that no worker can start.
+    sim = Sim()
+    pool = _FullPool(sim.clock, 5.0, 30.0)  # type: ignore[arg-type]
+    sim.pool = pool
+    sim.controller = Controller(pool, CONFIG, sim.clock)  # type: ignore[arg-type]
+    tasks = await _start(sim)
+    assert not sim.controller.gpus_full()
+    sim.controller.note_request()
+    await sim.clock.run_until(2.0)
+    assert sim.controller.gpus_full()
+    assert sim.controller.failures == 1
+    assert not await sim.controller.wait_ready(150.0)  # returns at once
+    assert sim.clock.now() == 2.0
+    pool.full = False
+    sim.controller.note_request()  # a new arrival tries again
+    await sim.clock.run_until(3.0)
+    assert not sim.controller.gpus_full()  # a worker is starting
+    await sim.clock.run_until(60.0)
+    assert sim.ready_count() == 1
+    assert not sim.controller.gpus_full()
+    await _stop(sim, tasks)
+
+
+async def test_other_start_failures_do_not_mean_full_gpus() -> None:
+    sim = Sim()
+    sim.pool.fail_next = 1
+    tasks = await _start(sim)
+    sim.controller.note_request()
+    await sim.clock.run_until(10.0)
+    assert sim.controller.failures == 1
+    assert not sim.controller.gpus_full()
     await _stop(sim, tasks)
 
 

@@ -177,19 +177,19 @@ async def test_rerank_endpoint_and_client() -> None:
             raise RuntimeError("model failed")
         return [float(len(t)) for t in texts]
 
-    app = create_app(lambda texts: [[1.0]] * len(texts), score)
+    app = create_app(lambda texts: [[1.0]] * len(texts), score, key="k")
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://e") as c:
-        client = HttpReranker(c, "http://e")
+        client = HttpReranker(c, "http://e", api_key="k")
         assert await client.scores("q", ["a", "abc"]) == [1.0, 3.0]
         assert await client.scores("q", []) == []
         with pytest.raises(RerankError):
             await client.scores("boom", ["a"])
-    no_model = create_app(lambda texts: [[1.0]])
+    no_model = create_app(lambda texts: [[1.0]], key="k")
     transport = httpx.ASGITransport(app=no_model)
     async with httpx.AsyncClient(transport=transport, base_url="http://e") as c:
         with pytest.raises(RerankError):
-            await HttpReranker(c, "http://e").scores("q", ["a"])
+            await HttpReranker(c, "http://e", api_key="k").scores("q", ["a"])
 
     def wrong(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=[1.0])

@@ -20,6 +20,7 @@ import httpx
 
 from askiisc.common import requestid
 from askiisc.common.errors import AskIIScError
+from askiisc.common.servicekey import bearer
 
 _TOKEN = re.compile(r"[a-z0-9]+")
 
@@ -40,11 +41,16 @@ class HttpReranker:
     """Client for the embedding server's /rerank endpoint."""
 
     def __init__(
-        self, client: httpx.AsyncClient, base_url: str, timeout_s: float = 10.0
+        self,
+        client: httpx.AsyncClient,
+        base_url: str,
+        timeout_s: float = 10.0,
+        api_key: str = "",
     ) -> None:
         self._client = client
         self._url = base_url.rstrip("/") + "/rerank"
         self._timeout = timeout_s
+        self._auth = bearer(api_key)
 
     async def scores(self, query: str, texts: Sequence[str]) -> list[float]:
         """Scores the texts.
@@ -58,7 +64,7 @@ class HttpReranker:
             response = await self._client.post(
                 self._url,
                 json={"query": query, "texts": list(texts)},
-                headers=requestid.headers(),
+                headers={**requestid.headers(), **self._auth},
                 timeout=self._timeout,
             )
             response.raise_for_status()

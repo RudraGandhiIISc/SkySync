@@ -2,10 +2,27 @@
 
 from __future__ import annotations
 
+import getpass
+import os
+from pathlib import Path
+
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from askiisc.common import targets
+
+
+def data_dir() -> Path:
+    """Run state, results and private files: $ASKIISC_DATA.
+
+    Without it, /data4/<you>/askiisc, the default slurm/lib.sh sets, so a
+    command run outside a job uses the caller's own folder, never another
+    user's.
+    """
+    configured = os.environ.get("ASKIISC_DATA", "")
+    if configured:
+        return Path(configured)
+    return Path("/data4") / getpass.getuser() / "askiisc"
 
 
 class Settings(BaseSettings):

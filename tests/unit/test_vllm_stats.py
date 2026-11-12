@@ -63,6 +63,9 @@ async def test_ready_workers_are_polled_and_failures_skipped() -> None:
         if request.url.host == "down":
             raise httpx.ConnectError("refused")
         if request.url.path == "/version":
+            # Only the counters are open; /version needs the job's key.
+            if request.headers.get("Authorization") != "Bearer k":
+                return httpx.Response(401)
             return httpx.Response(200, json={"version": "0.11.0"})
         return httpx.Response(200, text=METRICS)
 
@@ -72,7 +75,10 @@ async def test_ready_workers_are_polled_and_failures_skipped() -> None:
         SimpleNamespace(worker_id="c", state="loading", url="http://up:2"),
     ]
     live: Any = SimpleNamespace(
-        pool=SimpleNamespace(list_workers=lambda: workers),
+        pool=SimpleNamespace(
+            list_workers=lambda: workers,
+            auth_headers=lambda: {"Authorization": "Bearer k"},
+        ),
         stats=ServingStats(),
         vllm_version="",
     )

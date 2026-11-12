@@ -15,6 +15,7 @@ from deploy import logs
 from askiisc.access.client import HttpAccessClient
 from askiisc.access.service import create_app as create_access
 from askiisc.common.requestid import HEADER, REQUEST_ID, headers
+from askiisc.common.servicekey import bearer
 from askiisc.gateway.app import RequestEvent
 from askiisc.llm.client import LLMClient, StreamState
 from askiisc.observability.authproxy import check_basic, create_proxy
@@ -91,7 +92,7 @@ async def test_access_and_embed_services_log_one_line_per_call(
     access = create_access(
         w.directory, w.policies, w.issuer.verifier(w.clock), w.clock
     )
-    embed = create_embed(lambda texts: [[1.0, 0.0] for _ in texts])
+    embed = create_embed(lambda texts: [[1.0, 0.0] for _ in texts], key="k")
     caplog.set_level(logging.INFO)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=access), base_url="http://a"
@@ -109,7 +110,9 @@ async def test_access_and_embed_services_log_one_line_per_call(
         transport=httpx.ASGITransport(app=embed), base_url="http://e"
     ) as c:
         await c.post(
-            "/embed", json={"inputs": [SECRET]}, headers={HEADER: "rid-2"}
+            "/embed",
+            json={"inputs": [SECRET]},
+            headers={HEADER: "rid-2", **bearer("k")},
         )
     lines = [
         json.loads(r.getMessage())

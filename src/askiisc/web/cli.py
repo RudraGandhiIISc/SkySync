@@ -31,14 +31,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import secrets
 import time
 from pathlib import Path
 
 from askiisc.access.directory import Directory, Person
 from askiisc.access.policy import INSTITUTE
-from askiisc.common.config import Settings
+from askiisc.common.config import Settings, data_dir
 from askiisc.common.errors import NotFound
 from askiisc.common.types import UserId
 from askiisc.web.dbfiles import db_dir, restore
@@ -162,7 +161,7 @@ def main() -> None:  # noqa: PLR0912, PLR0915  # pragma: no cover - one command 
     )
     parser.add_argument("user_id", nargs="?")
     args = parser.parse_args()
-    data = Path(os.environ.get("ASKIISC_DATA", "/data4/muthangiv/askiisc"))
+    data = data_dir()
     app = data / "private" / "app"
     restore(app, db_dir(app))  # never start from an empty local copy
     store = AppStore(db_dir(app) / "app.db", load_key(app / "chat.key"))

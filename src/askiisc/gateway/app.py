@@ -32,11 +32,13 @@ from askiisc.common.errors import (
     AskIIScError,
     AuthError,
     ConfigError,
+    GpusFull,
     RateLimited,
 )
 from askiisc.common.requestid import REQUEST_ID
 from askiisc.common.targets import (
     CHAT_HISTORY_CHARS,
+    GPUS_FULL_RETRY_AFTER_S,
     LLM_MAX_TOKENS,
     MAX_QUESTION_TOKENS,
 )
@@ -65,6 +67,11 @@ from askiisc.observability.metrics import GatewayMetrics
 from askiisc.observability.stages import StageTimer
 
 REQUEST_ID_HEADER = "X-Request-Id"
+HTTP_UNAVAILABLE = 503
+GPUS_FULL_MESSAGE = (
+    "All GPUs on the shared server are in use by other jobs, so no model "
+    "worker can start. Please try again in a few minutes."
+)
 
 
 class WorkerStatus(Protocol):
@@ -75,7 +82,11 @@ class WorkerStatus(Protocol):
         ...
 
     async def wait_ready(self, timeout_s: float) -> bool:
-        """Waits for a worker; False on timeout."""
+        """Waits for a worker; False on timeout or when the GPUs are full."""
+        ...
+
+    def gpus_full(self) -> bool:
+        """True if no worker can start: other jobs fill every card."""
         ...
 
     def note_request(self) -> None:
@@ -93,6 +104,10 @@ class AlwaysReady:
     async def wait_ready(self, timeout_s: float) -> bool:
         """Returns at once."""
         return True
+
+    def gpus_full(self) -> bool:
+        """Never: the worker is always there."""
+        return False
 
     def note_request(self) -> None:
         """Does nothing."""
@@ -475,6 +490,7 @@ class _Session:
         self.request_id = REQUEST_ID.get() or deps.new_id()
         self.handed_off: float | None = None
         self.reason: RefusalReason | None = None
+        self.status: int | None = None
         self.prepared: Prepared | None = None
         self.answer: Answer | None = None
         self.cache_hit = False
@@ -511,6 +527,16 @@ class _Session:
         except AccessDenied as err:
             decision, self.reason = "denied", access_reason(err)
             yield sse("error", {"error": "access check failed"})
+        except GpusFull as err:
+            self.status, self.reason = HTTP_UNAVAILABLE, "gpus_full"
+            yield sse(
+                "error",
+                {
+                    "error": "GpusFull",
+                    "message": GPUS_FULL_MESSAGE,
+                    "retry_after_s": err.retry_after_s,
+                },
+            )
         except AskIIScError as err:
             yield sse("error", {"error": type(err).__name__})
         finally:
@@ -519,7 +545,7 @@ class _Session:
                     self.ticket, completed=decision != "error"
                 )
             self._finish_metrics(decision)
-            self.audit(decision)
+            self.audit(decision, self.status)
 
     async def _run(self) -> AsyncIterator[bytes]:
         if await self._from_cache():
@@ -585,6 +611,8 @@ class _Session:
         workers = self.deps.workers
         if workers.ready():
             return
+        if workers.gpus_full():
+            raise GpusFull("every GPU is full", GPUS_FULL_RETRY_AFTER_S)
         self.deps.metrics.cold_holds.inc()
         self.cold_hold = True
         yield sse(
@@ -596,6 +624,8 @@ class _Session:
         )
         with self.timer.measure("cold_hold"):
             ready = await workers.wait_ready(self.deps.max_cold_hold_s)
+        if not ready and workers.gpus_full():
+            raise GpusFull("every GPU is full", GPUS_FULL_RETRY_AFTER_S)
         if not ready:
             raise AskIIScError("cold start took too long")
 

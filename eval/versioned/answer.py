@@ -108,20 +108,20 @@ async def run(questions: Path, corpus: Path, state: Path, out: Path) -> None:
     )
     async with (
         httpx.AsyncClient(limits=httpx.Limits(max_connections=64)) as http,
-        embed_server(out, free_port()) as embed_url,
+        embed_server(out, free_port()) as embed,
     ):
-        await wait_http(http, embed_url + "/health", 600)
+        await wait_http(http, embed.url + "/health", 600)
         access = LocalAccess(
             PolicyEngine(directory, policies), issuer.verifier(clock), clock
         )
         retriever = Retriever(
             access,
-            HttpEmbedder(http, embed_url, timeout_s=60.0),
+            HttpEmbedder(http, embed.url, timeout_s=60.0, api_key=embed.key),
             index,
             clock,
             query_prefix=query_prefix(settings.embed_model),
             reranker=(
-                HttpReranker(http, embed_url, timeout_s=60.0)
+                HttpReranker(http, embed.url, timeout_s=60.0, api_key=embed.key)
                 if settings.rerank_model
                 else None
             ),

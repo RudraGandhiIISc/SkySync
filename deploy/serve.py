@@ -56,8 +56,9 @@ from askiisc.autoscaler.controller import Controller
 from askiisc.autoscaler.policy import ScalingConfig
 from askiisc.autoscaler.pool import ProcessPool
 from askiisc.common.clock import SystemClock
-from askiisc.common.config import Settings
+from askiisc.common.config import Settings, data_dir
 from askiisc.common.errors import ConfigError
+from askiisc.common.servicekey import KEY_ENV, new_key
 from askiisc.common.tokens import TokenIssuer
 from askiisc.common.types import DocId
 from askiisc.gateway.app import GatewayDeps
@@ -100,13 +101,15 @@ from askiisc.web.requestlog import RequestLog
 from askiisc.web.store import AppStore, load_key
 from deploy import logs
 from deploy.stack import (
-    embed_server,
+    Endpoint,
+    embed_command,
     load_world,
     make_controller,
     make_pool,
     wait_http,
     write_workers,
 )
+from deploy.watchdog import ChildSpec, Watchdog
 
 LOG = logging.getLogger("askiisc.serve")
 REVISION_COMMIT_DELAY_S = 5.0
@@ -703,22 +706,16 @@ def load_test_runs(results: Path) -> list[dict[str, Any]]:
     return runs
 
 
-@contextlib.asynccontextmanager
-async def access_process(
-    children: Children, paths: Paths, issuer: TokenIssuer, directory: str
-) -> AsyncIterator[tuple[str, int]]:
-    """Runs the access service as its own process."""
-    jwks = paths.run / "jwks.json"
-    jwks.write_text(json.dumps(issuer.jwks()))
-    port = free_port()
-    cmd = [
+def access_command(paths: Paths, port: int, directory: str) -> list[str]:
+    """The access service's command (its JWKS is in the run folder)."""
+    return [
         sys.executable,
         "-m",
         "askiisc.access.server",
         "--port",
         str(port),
         "--jwks",
-        str(jwks),
+        str(paths.run / "jwks.json"),
         "--corpus",
         str(paths.corpus),
         "--overrides",
@@ -726,13 +723,44 @@ async def access_process(
         "--directory",
         directory,
     ]
+
+
+@contextlib.asynccontextmanager
+async def access_process(
+    children: Children, paths: Paths, issuer: TokenIssuer, directory: str
+) -> AsyncIterator[tuple[str, int]]:
+    """Runs the access service as its own process."""
+    (paths.run / "jwks.json").write_text(json.dumps(issuer.jwks()))
+    port = free_port()
     await children.start(
-        "access", cmd, paths.run / "access.log", dict(os.environ)
+        "access",
+        access_command(paths, port, directory),
+        paths.run / "access.log",
+        dict(os.environ),
     )
     try:
         yield f"http://127.0.0.1:{port}", port
     finally:
         await children.stop("access")
+
+
+async def start_embed(children: Children, paths: Paths) -> ChildSpec:
+    """Starts the keyed embedding server as a watched child.
+
+    Returns:
+        How to start it again (same port and key).
+    """
+    port, key = free_port(), new_key()
+    cmd, env = embed_command(port, key)
+    spec = ChildSpec("embed", cmd, paths.run / "embed.log", env)
+    await children.start(spec.name, spec.cmd, spec.log, spec.env)
+    return spec
+
+
+def embed_endpoint(spec: ChildSpec) -> Endpoint:
+    """The URL and key of the embedding server a spec starts."""
+    port = spec.cmd[spec.cmd.index("--port") + 1]
+    return Endpoint(f"http://127.0.0.1:{port}", spec.env[KEY_ENV])
 
 
 def free_port() -> int:
@@ -815,7 +843,9 @@ async def read_workers(live: Live, http: httpx.AsyncClient, now: float) -> None:
             response = await http.get(f"{worker.url}/metrics")
             readings[worker.worker_id] = parse_metrics(response.text)
             if not live.vllm_version:
-                version = await http.get(f"{worker.url}/version")
+                version = await http.get(
+                    f"{worker.url}/version", headers=live.pool.auth_headers()
+                )
                 live.vllm_version = str(version.json().get("version", ""))
         except (httpx.HTTPError, ValueError) as err:
             LOG.debug("worker %s stats: %s", worker.worker_id, err)
@@ -1102,19 +1132,24 @@ async def run(paths: Paths) -> int:
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGUSR1):
         loop.add_signal_handler(sig, stop.set)
+    users = settings.directory_path or "eval/datasets/sample/users"
     try:
+        embed = await start_embed(children, paths)
         async with (
             httpx.AsyncClient(limits=httpx.Limits(max_connections=512)) as http,
-            embed_server(paths.run, free_port()) as embed_url,
-            access_process(
-                children,
-                paths,
-                issuer,
-                settings.directory_path or "eval/datasets/sample/users",
-            ) as (access_url, access_port),
+            access_process(children, paths, issuer, users) as (
+                access_url,
+                access_port,
+            ),
         ):
-            await wait_http(http, embed_url + "/health", 300)
+            await wait_http(http, embed_endpoint(embed).url + "/health", 300)
             await wait_http(http, access_url + "/healthz", 300)
+            access = ChildSpec(
+                "access",
+                access_command(paths, access_port, users),
+                paths.run / "access.log",
+                dict(os.environ),
+            )
             return await _serve(
                 settings,
                 clock,
@@ -1124,11 +1159,12 @@ async def run(paths: Paths) -> int:
                 issuer,
                 directory,
                 docs,
-                embed_url,
+                embed_endpoint(embed),
                 access_url,
                 access_port,
                 children,
                 stop,
+                watched=[access, embed],
             )
     finally:
         await children.stop_all()
@@ -1143,15 +1179,16 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
     issuer: TokenIssuer,
     directory: Any,
     docs: list[CorpusDoc],
-    embed_url: str,
+    embed: Endpoint,
     access_url: str,
     access_port: int,
     children: Children,
     stop: asyncio.Event,
+    watched: list[ChildSpec],
 ) -> int:
     from pymilvus import MilvusClient  # noqa: PLC0415
 
-    embedder = HttpEmbedder(http, embed_url, timeout_s=30.0)
+    embedder = HttpEmbedder(http, embed.url, timeout_s=30.0, api_key=embed.key)
     search_pool = ThreadPoolExecutor(SEARCH_THREADS, "search")
     versions = SQLiteVersionStore(paths.state / "versions.db")
     client = MilvusClient(str(paths.state / "milvus.db"))
@@ -1194,6 +1231,7 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
         spec.served_name,
         timeout_s=settings.llm_timeout_s,
         extra_body=spec.request_extra(),
+        api_key=pool.api_key,
     )
     links = await start_monitoring(children, paths, ports, access_port)
     live = Live(controller, pool, index, spec.served_name, clock.now(), links)
@@ -1211,7 +1249,7 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
     catalogue = doc_catalogue(paths.corpus, docs)
     catalogue.update(load_uploads(paths.state))
     reranker = (
-        HttpReranker(http, embed_url, timeout_s=10.0)
+        HttpReranker(http, embed.url, timeout_s=10.0, api_key=embed.key)
         if settings.rerank_model
         else None
     )
@@ -1270,21 +1308,11 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
         await asyncio.sleep(10)
         await children.start(
             "access",
-            [
-                sys.executable,
-                "-m",
-                "askiisc.access.server",
-                "--port",
-                str(access_port),
-                "--jwks",
-                str(paths.run / "jwks.json"),
-                "--corpus",
-                str(paths.corpus),
-                "--overrides",
-                str(paths.app / "policy_overrides.jsonl"),
-                "--directory",
+            access_command(
+                paths,
+                access_port,
                 settings.directory_path or "eval/datasets/sample/users",
-            ],
+            ),
             paths.run / "access.log",
             dict(os.environ),
         )
@@ -1348,7 +1376,15 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
         monotonic=time.perf_counter,
         wall=time.time,
     )
+    watchdog = Watchdog(
+        children,
+        watched,
+        clock,
+        on_restart=lambda name: metrics.child_restarts.labels(name).inc(),
+    )
+    watching = asyncio.create_task(watchdog.run())
     tasks = [
+        watching,
         asyncio.create_task(controller.run(interval_s=1.0)),
         asyncio.create_task(background(live, metrics, web, paths)),
         asyncio.create_task(backups(databases, paths.app)),
@@ -1373,6 +1409,8 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
         )
         LOG.info("stopping")
     finally:
+        # Children Slurm's SIGTERM already killed must not be restarted.
+        watching.cancel()
         # First of all: Slurm kills the job soon after scancel, and the web
         # server's graceful stop waits for open streams. The live copy
         # stays on local disk either way.
@@ -1474,7 +1512,7 @@ def main() -> None:  # pragma: no cover
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(name)s %(message)s"
     )
-    data = Path(os.environ.get("ASKIISC_DATA", "/data4/muthangiv/askiisc"))
+    data = data_dir()
     paths = Paths(args.run_dir, args.corpus, args.state_dir, data)
     sys.exit(asyncio.run(run(paths)))
 

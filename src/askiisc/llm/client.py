@@ -13,6 +13,7 @@ import httpx
 
 from askiisc.common import requestid
 from askiisc.common.errors import AskIIScError, LLMError
+from askiisc.common.servicekey import bearer
 from askiisc.common.targets import LLM_MAX_TOKENS, LLM_TEMPERATURE
 
 Message = dict[str, str]
@@ -35,7 +36,11 @@ class StreamState:
 
 
 class LLMClient:
-    """Streams chat completions."""
+    """Streams chat completions.
+
+    With an api_key, every request carries the serving job's worker key
+    (common/servicekey.py).
+    """
 
     def __init__(
         self,
@@ -46,8 +51,10 @@ class LLMClient:
         temperature: float = LLM_TEMPERATURE,
         timeout_s: float = 60.0,
         extra_body: Mapping[str, object] | None = None,
+        api_key: str = "",
     ) -> None:
         self._client = client
+        self._auth = bearer(api_key)
         self._extra = dict(extra_body or {})
         self._base = base_url
         self.model = model
@@ -117,7 +124,7 @@ class LLMClient:
                 "POST",
                 url,
                 json=body,
-                headers=requestid.headers(),
+                headers={**requestid.headers(), **self._auth},
                 timeout=self._timeout,
             ) as response:
                 if response.status_code != httpx.codes.OK:

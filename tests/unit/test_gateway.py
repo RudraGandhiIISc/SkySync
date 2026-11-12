@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from askiisc.common.errors import ConfigError
+from askiisc.common.targets import GPUS_FULL_RETRY_AFTER_S
 from askiisc.common.types import Answer, ChunkId, Citation, DocId, Version
 from askiisc.gateway.app import GatewayDeps, create_app, sse
 from askiisc.gateway.audit import (
@@ -141,18 +142,31 @@ async def test_audit_record_reproduces_answer() -> None:
 
 
 class _ColdWorkers:
-    def __init__(self, becomes_ready: bool) -> None:
+    def __init__(
+        self,
+        becomes_ready: bool,
+        full_before: bool = False,
+        full_after: bool = False,
+    ) -> None:
         self._ready = False
         self._becomes = becomes_ready
+        self._full = full_before
+        self._full_after = full_after
         self.requests = 0
+        self.waits = 0
 
     def ready(self) -> bool:
         return self._ready
 
     async def wait_ready(self, timeout_s: float) -> bool:
         await asyncio.sleep(0)
+        self.waits += 1
         self._ready = self._becomes
+        self._full = self._full_after
         return self._becomes
+
+    def gpus_full(self) -> bool:
+        return self._full
 
     def note_request(self) -> None:
         self.requests += 1
@@ -174,6 +188,32 @@ async def test_cold_start_timeout_is_an_error_event() -> None:
     r = await stack.ask("u_cds_stu", QUESTION)
     assert [e for e, _ in events(r)] == ["warming", "error"]
     assert stack.audit.records[-1].decision == "error"
+
+
+async def test_full_gpus_end_the_request_at_once_with_a_retry_time() -> None:
+    # FR-10: other users' jobs fill every card, so no worker can start.
+    workers = _ColdWorkers(becomes_ready=False, full_before=True)
+    stack = build(workers=workers)
+    r = await stack.ask("u_cds_stu", QUESTION)
+    got = events(r)
+    assert [e for e, _ in got] == ["error"]  # no warming, no 150 s wait
+    error = got[0][1]
+    assert error["error"] == "GpusFull"
+    assert "try again" in error["message"]
+    assert error["retry_after_s"] == GPUS_FULL_RETRY_AFTER_S
+    assert workers.waits == 0
+    record = stack.audit.records[-1]
+    assert (record.decision, record.reason) == ("error", "gpus_full")
+
+
+async def test_gpus_filling_during_the_hold_end_it_early() -> None:
+    workers = _ColdWorkers(becomes_ready=False, full_after=True)
+    stack = build(workers=workers)
+    r = await stack.ask("u_cds_stu", QUESTION)
+    got = events(r)
+    assert [e for e, _ in got] == ["warming", "error"]
+    assert got[1][1]["error"] == "GpusFull"
+    assert stack.audit.records[-1].reason == "gpus_full"
 
 
 async def test_access_service_down_denies() -> None:

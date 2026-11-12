@@ -180,6 +180,9 @@ class _Cold:
         self._ready = True
         return True
 
+    def gpus_full(self) -> bool:
+        return False
+
     def note_request(self) -> None:
         pass
 

@@ -413,7 +413,7 @@ async function stream(path, body, question) {
           else if (ev === "token") { text += data.text; out.innerHTML = withCitations(text, []); scrollDown(); }
           else if (ev === "answer") answer = data;
           else if (ev === "saved") saved = data;
-          else if (ev === "error") failure = `Something went wrong (${data.error}). Please try again.`;
+          else if (ev === "error") failure = data.message || `Something went wrong (${data.error}). Please try again.`;
         }
       }
     }

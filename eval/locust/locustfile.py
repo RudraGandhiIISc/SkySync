@@ -46,6 +46,7 @@ from locust import HttpUser, LoadTestShape, between, constant, events, task
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from askiisc.common.config import data_dir  # noqa: E402
 from eval.locust.client_log import (  # noqa: E402
     ClientLog,
     ClientRecord,
@@ -62,7 +63,7 @@ from eval.redteam import load_cases, planted_documents, verdict  # noqa: E402
 
 HDR = {"Content-Type": "application/json", "X-AskIISc": "1"}
 REPO = Path(__file__).resolve().parents[2]
-DATA = Path(os.environ.get("ASKIISC_DATA", "/data4/muthangiv/askiisc"))
+DATA = data_dir()
 # ---------------------------------------------------------------- data
 
 

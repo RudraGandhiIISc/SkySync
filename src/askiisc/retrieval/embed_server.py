@@ -3,9 +3,13 @@
 POST /embed {"inputs": [...]} returns one unit-length vector per input.
 POST /rerank {"query": ..., "texts": [...]} returns one cross-encoder score
 per text (when started with --reranker).
-It runs in the serve venv (sentence-transformers and torch), started as:
+Every path but /health needs the serving job's key (`Authorization: Bearer`,
+common/servicekey.py): any user of the shared server can reach a loopback
+port. It runs in the serve venv (sentence-transformers and torch), started
+as:
 
-    PYTHONPATH=src $SERVE_VENV/bin/python -m askiisc.retrieval.embed_server \
+    ASKIISC_SERVICE_KEY=<key> PYTHONPATH=src \
+        $SERVE_VENV/bin/python -m askiisc.retrieval.embed_server \
         --model BAAI/bge-m3 --reranker BAAI/bge-reranker-v2-m3 --port 8003
 
 The project venv never imports sentence-transformers; tests inject `encode`.
@@ -15,12 +19,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from collections.abc import Callable, Sequence
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from askiisc.common.requestid import log_requests
+from askiisc.common.servicekey import EMBED_OPEN_PATHS, KEY_ENV, RequireKey
 from askiisc.common.targets import EMBED_MODEL
 
 LOG = logging.getLogger("askiisc.embed.requests")
@@ -45,17 +51,27 @@ class RerankRequest(BaseModel):
     texts: list[str] = Field(min_length=1, max_length=MAX_INPUTS)
 
 
-def create_app(encode: Encode, score: Score | None = None) -> FastAPI:
+def create_app(
+    encode: Encode, score: Score | None = None, *, key: str
+) -> FastAPI:
     """Builds the server around an encode function.
 
     Args:
         encode: Maps texts to normalised vectors.
         score: Scores (question, passages); None: no /rerank endpoint.
+        key: The key every request but /health must carry.
 
     Returns:
         A FastAPI application.
+
+    Raises:
+        ValueError: If the key is empty.
     """
+    if not key:
+        raise ValueError("the embedding server needs a key")
     app = FastAPI(title="ask-iisc-embed")
+    # Added before the request log, so refused calls are logged too.
+    app.add_middleware(RequireKey, key=key, open_paths=EMBED_OPEN_PATHS)
     log_requests(app, "embed", LOG)
 
     @app.get("/health")
@@ -118,7 +134,7 @@ def cross_encoder_scorer(model: str, device: str) -> Score:
 
 
 def main(argv: Sequence[str] | None = None) -> None:  # pragma: no cover
-    """Runs the server (bound to 127.0.0.1)."""
+    """Runs the server (bound to 127.0.0.1), keyed by ASKIISC_SERVICE_KEY."""
     import uvicorn  # noqa: PLC0415
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -127,6 +143,9 @@ def main(argv: Sequence[str] | None = None) -> None:  # pragma: no cover
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--port", type=int, default=8003)
     args = parser.parse_args(argv)
+    key = os.environ.get(KEY_ENV, "")
+    if not key:
+        parser.error(f"{KEY_ENV} is not set: the server never runs unkeyed")
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     score = (
         cross_encoder_scorer(args.reranker, args.device)
@@ -134,7 +153,7 @@ def main(argv: Sequence[str] | None = None) -> None:  # pragma: no cover
         else None
     )
     app = create_app(
-        sentence_transformer_encoder(args.model, args.device), score
+        sentence_transformer_encoder(args.model, args.device), score, key=key
     )
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
 

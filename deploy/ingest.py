@@ -99,11 +99,13 @@ async def ingest(
     write_policies(run_dir, docs)  # a copy for this run; corpus stays read-only
     async with (
         httpx.AsyncClient() as http,
-        embed_server(run_dir, free_port()) as url,
+        embed_server(run_dir, free_port()) as embed,
     ):
         pool = ProcessPoolExecutor(max_workers=workers)
-        await wait_http(http, url + "/health", 300)
-        embedder = HttpEmbedder(http, url, timeout_s=300.0)
+        await wait_http(http, embed.url + "/health", 300)
+        embedder = HttpEmbedder(
+            http, embed.url, timeout_s=300.0, api_key=embed.key
+        )
         ingestor, versions = open_state(state, embedder, db_dir)
         ingestor.chunker = pool_chunker(pool)
         reconciler = Reconciler(

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from askiisc.common import targets as t
+from askiisc.common.config import data_dir
 from askiisc.llm.models import load_models
 
 METRICS = {
@@ -143,8 +144,6 @@ def record(folder: Path, values: dict[str, float], source: str) -> Path:
 
 def main() -> None:  # pragma: no cover - thin command-line wrapper
     """`record <key> --accuracy ... --source ...`."""
-    import os  # noqa: PLC0415
-
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["record"])
     parser.add_argument("key", choices=sorted(load_models()))
@@ -152,7 +151,7 @@ def main() -> None:  # pragma: no cover - thin command-line wrapper
         parser.add_argument(f"--{field.replace('_', '-')}", type=float)
     parser.add_argument("--source", required=True)
     args = parser.parse_args()
-    data = Path(os.environ.get("ASKIISC_DATA", "/data4/muthangiv/askiisc"))
+    data = data_dir()
     values = {field: getattr(args, field) for field in METRICS}
     path = record(data / "results" / "models" / args.key, values, args.source)
     print(f"wrote {path}")

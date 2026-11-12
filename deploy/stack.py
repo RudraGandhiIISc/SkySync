@@ -32,6 +32,7 @@ from askiisc.autoscaler.pool import (
 )
 from askiisc.common.clock import Clock, SystemClock
 from askiisc.common.config import Settings
+from askiisc.common.servicekey import KEY_ENV, new_key
 from askiisc.common.targets import EMBED_MODEL, RERANK_MODEL
 from askiisc.common.types import DocId
 from askiisc.gateway.drr import FairDispatcher
@@ -74,38 +75,70 @@ async def wait_http(
     raise RuntimeError(f"{url} not healthy after {timeout_s} s")
 
 
-@contextlib.asynccontextmanager
-async def embed_server(run_dir: Path, port: int) -> AsyncIterator[str]:
-    """Starts the embedding (and reranking) server from the serve venv.
+@dataclasses.dataclass(frozen=True)
+class Endpoint:
+    """A service the job started: its loopback URL and its key."""
+
+    url: str
+    key: str = dataclasses.field(repr=False)
+
+
+def embed_command(port: int, key: str) -> tuple[list[str], dict[str, str]]:
+    """The embedding (and reranking) server's command and environment.
 
     ASKIISC_EMBED_DEVICE picks the device (cpu or cuda), ASKIISC_EMBED_MODEL
-    the embedder, ASKIISC_RERANK_MODEL the reranker (empty: none).
+    the embedder, ASKIISC_RERANK_MODEL the reranker (empty: none). The key
+    goes in the environment, never on the command line (other users can
+    read command lines).
+
+    Args:
+        port: The loopback port.
+        key: The key every request but /health must carry.
+
+    Returns:
+        The command and its environment.
     """
     python = Path(os.environ["SERVE_VENV"]) / "bin" / "python"
-    env = {**os.environ, "PYTHONPATH": "src", "HF_HUB_OFFLINE": "1"}
+    env = {
+        **os.environ,
+        "PYTHONPATH": "src",
+        "HF_HUB_OFFLINE": "1",
+        KEY_ENV: key,
+    }
     gpus = allowed_gpus()
     if os.environ.get("ASKIISC_EMBED_DEVICE", "cpu") == "cuda" and gpus:
         env["CUDA_VISIBLE_DEVICES"] = str(min(gpus))
+    cmd = [
+        str(python),
+        "-m",
+        "askiisc.retrieval.embed_server",
+        "--port",
+        str(port),
+        "--device",
+        os.environ.get("ASKIISC_EMBED_DEVICE", "cpu"),
+        "--model",
+        os.environ.get("ASKIISC_EMBED_MODEL", EMBED_MODEL),
+        "--reranker",
+        os.environ.get("ASKIISC_RERANK_MODEL", RERANK_MODEL),
+    ]
+    return cmd, env
+
+
+@contextlib.asynccontextmanager
+async def embed_server(run_dir: Path, port: int) -> AsyncIterator[Endpoint]:
+    """Starts the embedding server with a fresh key, for a batch job."""
+    key = new_key()
+    cmd, env = embed_command(port, key)
     with (run_dir / "embed.log").open("ab") as log:
         proc = await asyncio.create_subprocess_exec(
-            str(python),
-            "-m",
-            "askiisc.retrieval.embed_server",
-            "--port",
-            str(port),
-            "--device",
-            os.environ.get("ASKIISC_EMBED_DEVICE", "cpu"),
-            "--model",
-            os.environ.get("ASKIISC_EMBED_MODEL", EMBED_MODEL),
-            "--reranker",
-            os.environ.get("ASKIISC_RERANK_MODEL", RERANK_MODEL),
+            *cmd,
             env=env,
             stdout=log,
             stderr=log,
             start_new_session=True,
         )
     try:
-        yield f"http://127.0.0.1:{port}"
+        yield Endpoint(f"http://127.0.0.1:{port}", key)
     finally:
         with contextlib.suppress(ProcessLookupError):
             proc.terminate()
@@ -198,7 +231,10 @@ def make_pool(
         ],
         log_dir=str(run_dir),
         max_workers=settings.max_workers,
+        min_memory_fraction=spec.min_gpu_fraction,
         prefix_caching=settings.prefix_cache,
+        api_key=new_key(),
+        source_dir=str(Path("src").resolve()),
     )
     allowed = allowed_gpus()
     return ProcessPool(

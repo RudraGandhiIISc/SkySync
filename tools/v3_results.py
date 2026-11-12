@@ -24,12 +24,13 @@ from typing import Any
 
 from eval.fr6_report import percentile, read_lines
 
+from askiisc.common.config import data_dir
 from askiisc.observability.vllm_startup import parse
 from tools.evidence import INK, MUTED, SERIES, TARGET, nice_ticks
 
 REPO = Path(__file__).resolve().parents[1]
 OUT = REPO / "docs" / "results" / "v3"
-DATA = Path("/data4/muthangiv/askiisc/results")
+DATA = data_dir() / "results"
 NOT_RUN = "not run"
 
 

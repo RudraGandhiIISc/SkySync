@@ -23,6 +23,7 @@ RefusalReason = Literal[
     "rate_limited",
     "access_check_timeout",
     "access_check_failed",
+    "gpus_full",
 ]
 """Why a request was refused before an answer (fixed codes, never text)."""
 

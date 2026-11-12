@@ -9,6 +9,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict
 
 from askiisc.common.errors import ConfigError
+from askiisc.common.targets import MIN_GPU_FRACTION, MIN_GPU_FRACTION_4BIT
 
 SizeClass = Literal["4B", "8B", "8B-AWQ"]
 
@@ -29,6 +30,17 @@ class ModelSpec(BaseModel):
     # Sent with every chat request; Qwen3 (hybrid reasoning) needs
     # {"enable_thinking": false} to answer directly.
     chat_template_kwargs: dict[str, bool] | None = None
+
+    @property
+    def min_gpu_fraction(self) -> float:
+        """The smallest share of a card a worker of this model starts in.
+
+        A 4-bit 8B model has about a third of a BF16 8B model's weights, so
+        it can still start when other users' jobs leave a card mostly full.
+        """
+        if self.size_class == "8B-AWQ":
+            return MIN_GPU_FRACTION_4BIT
+        return MIN_GPU_FRACTION
 
     def request_extra(self) -> dict[str, object]:
         """Fields added to every chat request for this model."""

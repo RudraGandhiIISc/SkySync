@@ -24,7 +24,13 @@ from askiisc.autoscaler.policy import (
     decide,
     needed_workers,
 )
-from askiisc.autoscaler.pool import PoolError, Worker, WorkerPool, WorkerState
+from askiisc.autoscaler.pool import (
+    NoGpuRoom,
+    PoolError,
+    Worker,
+    WorkerPool,
+    WorkerState,
+)
 from askiisc.common.clock import Clock
 
 _LOG = logging.getLogger(__name__)
@@ -84,6 +90,8 @@ class Controller:
         self._rr = itertools.count()
         self._ready_count = 0
         self._closed = False
+        # When the last start failed because no card had room, else None.
+        self._no_room_at: float | None = None
 
     # WorkerStatus (used by the gateway).
 
@@ -105,11 +113,24 @@ class Controller:
         """How many workers can serve now (recorded in each audit record)."""
         return len(self.ready_workers())
 
+    def gpus_full(self) -> bool:
+        """Whether every card was too full for the last worker start.
+
+        True only while no worker serves or is starting. A new arrival makes
+        the controller try again (FR-10), so this clears once a card has
+        room.
+        """
+        return (
+            self._no_room_at is not None
+            and self._starting == 0
+            and not self.ready()
+        )
+
     async def wait_ready(self, timeout_s: float) -> bool:
-        """Waits until a worker is ready, or the timeout passes."""
+        """Waits for a ready worker; False on timeout or full GPUs."""
         deadline = self._clock.now() + timeout_s
         while not self.ready():
-            if self._clock.now() >= deadline:
+            if self._clock.now() >= deadline or self.gpus_full():
                 return False
             await self._clock.sleep(self._poll)
         return True
@@ -181,8 +202,14 @@ class Controller:
         try:
             worker = await self._pool.request_worker()
             self.history.append(worker)
+            self._no_room_at = None
+        except NoGpuRoom as err:
+            self.failures += 1
+            self._no_room_at = self._clock.now()
+            _LOG.warning("worker start failed: %s", err)
         except PoolError as err:
             self.failures += 1
+            self._no_room_at = None
             _LOG.warning("worker start failed: %s", err)
         finally:
             self._starting -= 1

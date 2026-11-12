@@ -22,11 +22,18 @@ import httpx
 
 from askiisc.common.clock import Clock
 from askiisc.common.errors import AskIIScError
+from askiisc.common.servicekey import KEY_ENV, bearer
 from askiisc.common.targets import (
     GPU_SHARED_SLACK_MIB,
     LLM_MAX_MODEL_LEN,
     MAX_GPU_WORKERS,
+    MIN_GPU_FRACTION,
 )
+
+KEY_MIDDLEWARE = "askiisc.common.servicekey.RequireKey"
+"""Loaded by vLLM (--middleware): every path but /health and /metrics
+needs the job's key, including /invocations, which vLLM's own --api-key
+leaves open."""
 
 
 class WorkerState(StrEnum):
@@ -40,6 +47,10 @@ class WorkerState(StrEnum):
 
 class PoolError(AskIIScError):
     """A worker could not be started."""
+
+
+class NoGpuRoom(PoolError):
+    """No card has the free memory the model needs (other users' jobs)."""
 
 
 @dataclass
@@ -273,7 +284,7 @@ class ProcessPoolConfig:
     log_dir: str
     max_workers: int = MAX_GPU_WORKERS
     max_model_len: int = LLM_MAX_MODEL_LEN
-    min_memory_fraction: float = 0.25
+    min_memory_fraction: float = MIN_GPU_FRACTION
     load_timeout_s: float = 900.0
     poll_s: float = 2.0
     acquire_delay_s: float = 0.0
@@ -281,6 +292,11 @@ class ProcessPoolConfig:
     extra_env: dict[str, str] = field(default_factory=dict)
     # vLLM automatic prefix caching (FR-7); False only for the ablation.
     prefix_caching: bool = True
+    # The job's key for its workers (common/servicekey.py); "" runs them
+    # unkeyed (tests and benchmarks that start vLLM themselves).
+    api_key: str = field(default="", repr=False)
+    # Where askiisc lives, so vLLM can import the key middleware.
+    source_dir: str = ""
 
 
 class ProcessPool:
@@ -351,7 +367,31 @@ class ProcessPool:
             "0",
             "--gpu-memory-utilization",
             f"{fraction:.2f}",
+            *(["--middleware", KEY_MIDDLEWARE] if c.api_key else []),
         ]
+
+    @property
+    def api_key(self) -> str:
+        """The job's key for its workers ("" when they run unkeyed)."""
+        return self._config.api_key
+
+    def auth_headers(self) -> dict[str, str]:
+        """The header a client sends with every call to a worker."""
+        return bearer(self._config.api_key)
+
+    def _env(self, worker: Worker, gpu: GpuInfo) -> dict[str, str]:
+        env = {
+            **os.environ,
+            **self._config.extra_env,
+            "CUDA_VISIBLE_DEVICES": str(gpu.index),
+            "HF_HUB_OFFLINE": "1",
+            "ASKIISC_WORKER_LOG": self._log_path(worker),
+        }
+        if self._config.api_key:
+            env[KEY_ENV] = self._config.api_key
+            paths = [self._config.source_dir, env.get("PYTHONPATH", "")]
+            env["PYTHONPATH"] = os.pathsep.join(p for p in paths if p)
+        return env
 
     async def request_worker(self) -> Worker:
         """Starts a worker on the least busy free card and waits until healthy.
@@ -373,15 +413,8 @@ class ProcessPool:
             f"http://127.0.0.1:{port}",
             self._clock.now(),
         )
-        env = {
-            **os.environ,
-            **self._config.extra_env,
-            "CUDA_VISIBLE_DEVICES": str(gpu.index),
-            "HF_HUB_OFFLINE": "1",
-            "ASKIISC_WORKER_LOG": self._log_path(worker),
-        }
         process = await self._launch(
-            self.command(port, memory_fraction(gpu)), env
+            self.command(port, memory_fraction(gpu)), self._env(worker, gpu)
         )
         self._workers[worker.worker_id] = (worker, process)
         worker.state = WorkerState.LOADING
@@ -404,7 +437,7 @@ class ProcessPool:
             gpu is None
             or memory_fraction(gpu) < self._config.min_memory_fraction
         ):
-            raise PoolError("no GPU with enough free memory")
+            raise NoGpuRoom("no GPU with enough free memory")
         worker.gpu = gpu.index
         return gpu
 

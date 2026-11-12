@@ -143,6 +143,12 @@ class GatewayMetrics:
             "GPU workers that died or failed to start since the job began.",
             registry=r,
         )
+        self.child_restarts = Counter(
+            "askiisc_child_restarts",
+            "Access or embedding server restarts by the job's watchdog.",
+            ["child"],
+            registry=r,
+        )
         self.gpu_utilization = Gauge(
             "askiisc_gpu_utilization_ratio",
             "GPU utilisation (0-1), NVML.",

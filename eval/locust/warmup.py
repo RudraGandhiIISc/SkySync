@@ -13,12 +13,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import time
 from collections.abc import Callable, Sequence
-from pathlib import Path
 
 import httpx
+
+from askiisc.common.config import data_dir
 
 HDR = {"Content-Type": "application/json", "X-AskIISc": "1"}
 QUESTION = "What are the hostel fees rules?"
@@ -80,7 +80,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("base")
     parser.add_argument("--wait-s", type=float, default=5400.0)
     args = parser.parse_args(argv)
-    data = Path(os.environ.get("ASKIISC_DATA", "/data4/muthangiv/askiisc"))
+    data = data_dir()
     accounts = json.loads(
         (data / "private" / "app" / "locust_accounts.json").read_text()
     )

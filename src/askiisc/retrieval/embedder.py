@@ -16,6 +16,7 @@ import httpx
 
 from askiisc.common import requestid
 from askiisc.common.errors import AskIIScError
+from askiisc.common.servicekey import bearer
 from askiisc.common.targets import EMBEDDING_DIM
 
 Vector = tuple[float, ...]
@@ -64,12 +65,14 @@ class HttpEmbedder:
         dim: int = EMBEDDING_DIM,
         batch_size: int = 32,
         timeout_s: float = 10.0,
+        api_key: str = "",
     ) -> None:
         self._client = client
         self._url = base_url.rstrip("/") + "/embed"
         self._dim = dim
         self._batch = batch_size
         self._timeout = timeout_s
+        self._auth = bearer(api_key)
 
     @property
     def dim(self) -> int:
@@ -95,18 +98,19 @@ class HttpEmbedder:
 
     async def _post(self, texts: Sequence[str]) -> httpx.Response:
         """Posts once, retrying once on a transport error (idempotent)."""
+        headers = {**requestid.headers(), **self._auth}
         try:
             return await self._client.post(
                 self._url,
                 json={"inputs": list(texts)},
-                headers=requestid.headers(),
+                headers=headers,
                 timeout=self._timeout,
             )
         except httpx.TransportError:
             return await self._client.post(
                 self._url,
                 json={"inputs": list(texts)},
-                headers=requestid.headers(),
+                headers=headers,
                 timeout=self._timeout,
             )
 

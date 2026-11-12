@@ -30,6 +30,18 @@ class RateLimited(AskIIScError):
         self.retry_after_s = retry_after_s
 
 
+class GpusFull(AskIIScError):
+    """No GPU worker can start: other jobs fill every card (FR-10).
+
+    A held request ends with this at once, carrying a retry time, instead
+    of waiting out the whole hold.
+    """
+
+    def __init__(self, message: str, retry_after_s: float) -> None:
+        super().__init__(message)
+        self.retry_after_s = retry_after_s
+
+
 class AuthError(AskIIScError):
     """The login token is missing, malformed, expired or wrongly signed."""
 

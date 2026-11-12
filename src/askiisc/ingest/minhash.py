@@ -78,7 +78,8 @@ def candidate_pairs(
     """Index pairs that share at least one LSH band (i < j).
 
     With 16 bands of 8 rows, pairs at similarity 0.9 are found with
-    probability above 0.9999 and pairs below 0.5 rarely.
+    probability 1 - (1 - 0.9**8)**16, about 0.99988, and pairs below 0.5
+    rarely.
     """
     rows = NUM_PERM // bands
     pairs: set[tuple[int, int]] = set()
