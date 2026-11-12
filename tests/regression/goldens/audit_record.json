@@ -270,7 +270,8 @@
        "question_too_long",
        "rate_limited",
        "access_check_timeout",
-       "access_check_failed"
+       "access_check_failed",
+       "gpus_full"
       ],
       "type": "string"
      },
