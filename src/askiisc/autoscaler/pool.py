@@ -53,6 +53,11 @@ class NoGpuRoom(PoolError):
     """No card has the free memory the model needs (other users' jobs)."""
 
 
+OOM_MARKERS = (b"CUDA out of memory", b"OutOfMemoryError")
+"""Lines vLLM's start-up log ends with when the card's memory ran out."""
+OOM_TAIL_BYTES = 64 * 1024
+
+
 @dataclass
 class Worker:
     """One GPU worker and its lifecycle timestamps (for the cost model)."""
@@ -430,6 +435,22 @@ class ProcessPool:
     def _log_path(self, worker: Worker) -> str:
         return f"{self._config.log_dir}/{worker.worker_id}.log"
 
+    def _ran_out_of_memory(self, worker: Worker) -> bool:
+        """Whether a worker's log ends in a CUDA out-of-memory error.
+
+        Other users' jobs can take a card's memory between the free-memory
+        check and the end of vLLM's start-up (FR-10, A1); that is a full
+        card too, not a broken worker.
+        """
+        try:
+            with open(self._log_path(worker), "rb") as log:
+                log.seek(0, os.SEEK_END)
+                log.seek(max(0, log.tell() - OOM_TAIL_BYTES))
+                tail = log.read()
+        except OSError:
+            return False
+        return any(marker in tail for marker in OOM_MARKERS)
+
     def _pick(self, worker: Worker) -> GpuInfo:
         used = {w.gpu for w, _ in self._workers.values() if w.gpu is not None}
         gpu = choose_gpu(self._gpus(), used)
@@ -446,6 +467,10 @@ class ProcessPool:
         while self._clock.now() < deadline:
             if process.returncode is not None:
                 await self.release_worker(worker.worker_id)
+                if self._ran_out_of_memory(worker):
+                    raise NoGpuRoom(
+                        f"{worker.worker_id}: card full at start-up"
+                    )
                 raise PoolError(f"{worker.worker_id} exited during start-up")
             with contextlib.suppress(httpx.HTTPError):
                 response = await self._http.get(

@@ -1,5 +1,7 @@
 """The serving job's vLLM workers and embedding server need its key."""
 
+from pathlib import Path
+
 import httpx
 import pytest
 
@@ -7,6 +9,7 @@ from askiisc.autoscaler.pool import (
     KEY_MIDDLEWARE,
     GpuInfo,
     NoGpuRoom,
+    PoolError,
     ProcessPool,
     ProcessPoolConfig,
     Worker,
@@ -149,3 +152,35 @@ async def test_embedding_server_refuses_calls_without_the_key() -> None:
 def test_embedding_server_never_starts_without_a_key() -> None:
     with pytest.raises(ValueError, match="key"):
         create_embed(_encode, key="")
+
+
+async def test_a_worker_killed_by_a_filling_card_counts_as_no_room(
+    tmp_path: Path,
+) -> None:
+    # Run 2234: another job took GPU 0's memory while a worker captured its
+    # CUDA graphs; the held request then waited the whole hold.
+    class _Dead:
+        pid = 4243
+        returncode = 1
+
+    async def launcher(cmd: list[str], env: dict[str, str]) -> _Dead:
+        return _Dead()
+
+    def pool() -> ProcessPool:
+        config = ProcessPoolConfig("/venv/bin/vllm", ["m"], str(tmp_path))
+        http = httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda r: httpx.Response(503))
+        )
+        return ProcessPool(
+            config, FakeClock(), http, lambda: GPUS, lambda: 30_000, launcher
+        )  # type: ignore[arg-type]
+
+    (tmp_path / "vllm-1.log").write_text(
+        "torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 14 MiB\n"
+    )
+    with pytest.raises(NoGpuRoom, match="card full"):
+        await pool().request_worker()
+    (tmp_path / "vllm-1.log").write_text("ValueError: bad model config\n")
+    with pytest.raises(PoolError) as caught:
+        await pool().request_worker()
+    assert not isinstance(caught.value, NoGpuRoom)
