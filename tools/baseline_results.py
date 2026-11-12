@@ -8,12 +8,14 @@ anything). Three Slurm jobs of slurm/v3_stack.sh made them:
   the Granite pair of the FR-8 KV-room check;
 - KV (`kvq e0sel`): the Qwen pair of the KV check on a quiet card, and the
   E0 sweep of Qwen3-8B and Qwen3-8B-AWQ (NFR-3, FR-7);
-- NEW (`faults fair2 nfr1 soak`), on the release code: service keys and
-  the watchdog (NFR-9, FR-4, NFR-5), FR-11 with both departments
-  backlogged, NFR-1 again and the NFR-5 soak.
+- NEW (`faults fresh5 fair2 cold8 soak nfr1`), on the release code:
+  service keys and the watchdog (NFR-9, FR-4, NFR-5), FR-5 after its two
+  fixes, FR-11 with both departments backlogged, Qwen3-8B's cold starts
+  again (FR-10, NFR-2), the NFR-5 soak and NFR-1 again.
 
 Run (inside Slurm):
-    python -m tools.baseline_results --v3 2234 --kv 2238 --new 2240
+    python -m tools.baseline_results --v3 2234 --kv 2238 --new 2259 \
+        --faults <job of the last fault check>
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ FR11_MAX_HEAVY = 0.55
 FR11_MIN_LIGHT = 0.20
 NFR5_MIN_SUCCESS = 0.99
 NFR5_RESTORE_S = 180.0
+FR5_DEMOTION_S = 900.0
 
 
 def kv_tokens(log: Path) -> tuple[float, int] | None:
@@ -157,6 +160,36 @@ def e0_section(kv_job: str) -> list[str]:
         "```",
         "",
         f"Raw files: `{v3.DATA}/models/<model>/bench-{kv_job}/sweep.json`.",
+        "",
+    ]
+
+
+def fresh5_section(new_job: str) -> list[str]:
+    """FR-5 again on the release code, after the two fixes."""
+    base = v3.DATA / "v3" / new_job / "fresh5"
+    f = v3.load(base / "report" / "freshness.json")
+    out = ["## FR-5: freshness replay on the release code", ""]
+    if f is None:
+        return [*out, f"{v3.NOT_RUN}.", ""]
+    d = f["demotion_s"]
+    ok = (
+        f["audit_unflagged"] == 0
+        and f["unflagged_cited"] == 0
+        and f["as_of_ok"] == len(f["as_of_checkpoints"])
+        and d["max"] is not None
+        and d["max"] <= FR5_DEMOTION_S
+    )
+    return [
+        *out,
+        "| Check | Target | Measured |",
+        "|---|---|---|",
+        f"| Revisions replayed | 60 across 20 documents | {f['revisions']} across {f['documents']} |",
+        f"| Time to demotion (s), p50 / p95 / max | at most 900 | {v3.fmt(d['p50'])} / {v3.fmt(d['p95'])} / {v3.fmt(d['max'])} (n={d['n']}) |",
+        f"| Answers using a superseded version without the flag (audit store) | 0 | {f['audit_unflagged']} of {f['audit_used_superseded']} that used one |",
+        f"| Answers citing a superseded version without the flag | 0 | {f['unflagged_cited']} of {f['answers']} answers |",
+        f"| As-of lookups correct at the checkpoints | all | {f['as_of_ok']} of {len(f['as_of_checkpoints'])} |",
+        "",
+        f"Verdict: {'pass' if ok else 'fail'}. Raw files: `{base}/`.",
         "",
     ]
 
@@ -290,6 +323,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--v3", required=True)
     parser.add_argument("--kv", required=True)
     parser.add_argument("--new", required=True)
+    parser.add_argument("--faults", help="job of the final fault check")
     args = parser.parse_args(argv)
     lines = [
         "# Evidence for the red-team baseline",
@@ -301,13 +335,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         "jobs could also use (risk R-3). Qwen3-8B-AWQ served the FR-5 and FR-3",
         "runs; Qwen3-8B served the rest.",
         "",
-        *v3.fresh_section(args.v3),
+        *titled(
+            v3.fresh_section(args.v3),
+            args.v3,
+            "code at 74401a5, before the FR-5 fixes",
+        ),
+        *fresh5_section(args.new),
         *titled(v3.nfr1_section(args.v3), args.v3, "code at 74401a5"),
         *titled(v3.nfr1_section(args.new), args.new, "release code"),
-        *v3.cold_section(args.v3),
+        *titled(v3.cold_section(args.v3), args.v3, "code at 74401a5"),
+        *titled(v3.cold_section(args.new), args.new, "release code"),
         *kv_section(args.v3, args.kv),
         *e0_section(args.kv),
-        *faults_section(args.new),
+        *faults_section(args.faults or args.new),
         *fairness_section(args.new),
         *soak_section(args.new),
     ]

@@ -37,6 +37,7 @@ from eval.locust.warmup import HDR, QUESTION
 EMBED = ("askiisc.retrieval.embed_server",)
 ACCESS = ("askiisc.access.server",)
 RECOVERY_LIMIT_S = 600.0
+WORKERS_WAIT_S = 60.0
 POLL_S = 0.5
 UNAUTHORIZED = 401
 OK = 200
@@ -174,8 +175,30 @@ def kill_and_recover(
 
 def live_workers(run_dir: Path) -> list[str]:
     """URLs of the ready workers in the run's workers.json."""
-    rows = json.loads((run_dir / "workers.json").read_text())
+    try:
+        rows = json.loads((run_dir / "workers.json").read_text())
+    except (OSError, ValueError):
+        return []  # not written yet, or being replaced
     return [r["url"] for r in rows if r.get("state") == "ready" and r["url"]]
+
+
+def wait_for_workers(
+    run_dir: Path,
+    limit_s: float = WORKERS_WAIT_S,
+    now: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> list[str]:
+    """The ready workers, waiting for workers.json to list one.
+
+    The file is rewritten every 5 s, so a worker that just became ready may
+    not be in it yet.
+    """
+    start = now()
+    while True:
+        workers = live_workers(run_dir)
+        if workers or now() - start >= limit_s:
+            return workers
+        sleep(POLL_S)
 
 
 def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover
@@ -202,7 +225,7 @@ def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover
         with httpx.Client(timeout=30.0) as http:
             report["refusals"] = refusals(
                 http,
-                live_workers(args.run_dir),
+                wait_for_workers(args.run_dir),
                 f"http://127.0.0.1:{port_of(argv_of(embed[0]))}",
             )
         report["faults"] = {

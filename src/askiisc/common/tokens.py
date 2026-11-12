@@ -1,4 +1,8 @@
-"""Verification of institute SSO tokens (JWT, RS256).
+"""Signed tokens (JWT, RS256) that carry a signed-in user's id.
+
+The serving job makes a new key pair at start-up; after a password
+sign-in, the web app hands the gateway and the access service a short-lived
+token signed with it.
 
 Only the user id (`sub`) is taken from a token. Departments and roles come
 from the directory export, never from the token or the client (A4).

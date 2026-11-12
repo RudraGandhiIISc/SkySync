@@ -72,3 +72,23 @@ def test_an_empty_results_folder_lists_every_run_as_not_run(
     assert (
         "(code at 74401a5, job 1)" in page and "(release code, job 3)" in page
     )
+
+
+def test_fr5_after_the_fixes_needs_zero_unflagged_answers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(v3, "DATA", tmp_path)
+    report = tmp_path / "v3" / "5" / "fresh5" / "report"
+    report.mkdir(parents=True)
+    result = {
+        "revisions": 60, "documents": 20, "answers": 3000,
+        "demotion_s": {"n": 60, "p50": 11.0, "p95": 38.0, "max": 120.0},
+        "unflagged_cited": 0, "audit_used_superseded": 40,
+        "audit_unflagged": 0, "as_of_ok": 60,
+        "as_of_checkpoints": [{"ok": True}] * 60,
+    }  # fmt: skip
+    (report / "freshness.json").write_text(json.dumps(result))
+    assert "Verdict: pass." in "\n".join(br.fresh5_section("5"))
+    result["audit_unflagged"] = 1
+    (report / "freshness.json").write_text(json.dumps(result))
+    assert "Verdict: fail." in "\n".join(br.fresh5_section("5"))

@@ -1,8 +1,10 @@
 """The live failure-injection check's verdict logic (eval/fault_check.py)."""
 
+import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 from eval.fault_check import (
     answered,
@@ -84,3 +86,27 @@ def test_own_processes_finds_this_users_process_by_argv() -> None:
     finally:
         child.kill()
         child.wait()
+
+
+def test_workers_are_awaited_until_the_file_lists_a_ready_one(
+    tmp_path: Path,
+) -> None:
+    from eval.fault_check import wait_for_workers
+
+    clock = [0.0]
+    states = iter(["loading", "loading", "ready"])
+
+    def sleep(seconds: float) -> None:
+        clock[0] += seconds
+        row = {"url": "http://127.0.0.1:1", "state": next(states)}
+        (tmp_path / "workers.json").write_text(json.dumps([row]))
+
+    assert wait_for_workers(tmp_path, 10.0, lambda: clock[0], sleep) == [
+        "http://127.0.0.1:1"
+    ]
+    (tmp_path / "workers.json").write_text("not json")
+
+    def tick(seconds: float) -> None:
+        clock[0] += seconds
+
+    assert wait_for_workers(tmp_path, 1.0, lambda: clock[0], tick) == []
