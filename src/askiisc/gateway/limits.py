@@ -167,6 +167,18 @@ class Admission:
         full = sum(self._depth.values()) >= (self._capacity or 0)
         return others or full
 
+    def _owed(self, tenant: TenantId) -> bool:
+        """Whether a tenant is below its fair share while others are active.
+
+        The fair queue serves such a tenant first (FR-11), so the wait
+        estimate, which assumes first come first served, does not apply to
+        it. Run 2259 (6 LLM slots): with it, the quiet department was
+        refused like the busy one and got 11% of the tokens.
+        """
+        share = self.share(tenant)
+        others = any(d > 0 for t, d in self._depth.items() if t != tenant)
+        return share is not None and others and self._depth[tenant] < share
+
     def admit(self, tenant: TenantId) -> Ticket:
         """Admits a request or rejects it immediately.
 
@@ -187,7 +199,7 @@ class Admission:
         if self._over_share(tenant):
             raise RateLimited("server busy: tenant at its fair share", 1.0)
         wait = self.estimated_wait_s()
-        if wait > self._max_wait:
+        if wait > self._max_wait and not self._owed(tenant):
             raise RateLimited("estimated wait too long", wait - self._max_wait)
         bucket = self._bucket(tenant)
         if not bucket.try_take():

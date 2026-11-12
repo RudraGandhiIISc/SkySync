@@ -312,3 +312,30 @@ def test_without_a_capacity_there_is_no_share() -> None:
     assert adm.share(A) is None
     for _ in range(50):
         adm.admit(A)
+
+
+def test_a_tenant_below_its_share_skips_the_wait_estimate() -> None:
+    # Regression (run 2259, 6 LLM slots): the first-come wait estimate
+    # refused the quiet department too, although the fair queue serves it
+    # first; it got 11% of the tokens (FR-11).
+    adm = Admission(
+        FakeClock(),
+        rate_per_s=100,
+        burst=100,
+        queue_max=100,
+        max_wait_s=2.0,
+        concurrency=2,
+        service_estimate_s=1.0,
+        max_in_flight=24,
+    )
+    for _ in range(6):
+        adm.admit(A)  # alone, estimated waits 0, 0, 0.5, 1.0, 1.5, 2.0
+    with pytest.raises(RateLimited, match="wait"):
+        adm.admit(A)  # alone: the wait estimate still sheds load (FR-6)
+    adm.admit(B)  # below its share while A is active: admitted
+    assert adm.estimated_wait_s() > 2.0
+    for _ in range(6):
+        adm.admit(A)  # A too is below its share of 12 now
+    assert adm.depth(A) == 12
+    with pytest.raises(RateLimited, match="fair share"):
+        adm.admit(A)
