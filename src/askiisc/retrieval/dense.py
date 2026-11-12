@@ -191,6 +191,21 @@ class DenseIndex:
                 )
             self.dirty = True
 
+    def valid_to_of(self, doc_id: DocId, version: Version) -> float | None:
+        """The latest valid_to of a version's chunks; None if it has none.
+
+        A current chunk's valid_to is FAR_FUTURE.
+        """
+        with self._lock:
+            doc = self._doc_pos.get(doc_id)
+            rows = [] if doc is None else self._doc_rows.get(doc, [])
+            ends = [
+                float(self._to[r])
+                for r in rows
+                if int(self._version[r]) == int(version)
+            ]
+        return max(ends) if ends else None
+
     def retire(self, doc_id: DocId, version: Version, at: float) -> int:
         """Sets valid_to on every chunk of a version (persistent first)."""
         if self._persistent is not None:

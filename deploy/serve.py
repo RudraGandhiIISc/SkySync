@@ -72,7 +72,7 @@ from askiisc.ingest.corpus import CorpusDoc, public_rows, read_titles
 from askiisc.ingest.editions import academic_year_label
 from askiisc.ingest.lineage import Lineage, next_editions
 from askiisc.ingest.objects import FileObjectStore
-from askiisc.ingest.pipeline import Ingestor
+from askiisc.ingest.pipeline import Ingestor, reconcile_retired
 from askiisc.ingest.reconciler import SourceDocument
 from askiisc.ingest.versions import SQLiteVersionStore
 from askiisc.llm.client import LLMClient
@@ -1198,6 +1198,9 @@ async def _serve(  # noqa: PLR0915 - one wiring function, read top to bottom
     probe = await embedder.embed(["dimension check"])
     dim = index.dim if len(index) else 0
     check_dimension(dim, len(probe[0]), paths.state, settings.embed_model)
+    repaired = await asyncio.to_thread(reconcile_retired, versions, index)
+    if repaired:
+        LOG.warning("retired %d superseded versions the index kept", repaired)
     ingestor = Ingestor(
         versions,
         FileObjectStore(paths.state / "objects"),

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Protocol
 
 from askiisc.common.errors import AskIIScError, ExtractionError
 from askiisc.common.types import ChunkDraft, DocId, Version
@@ -94,6 +95,38 @@ def retire_edition(
         return False
     index.retire(doc_id, record.version, at)
     return True
+
+
+class RetirableIndex(Protocol):
+    """What the start-up reconciliation needs from the search index."""
+
+    def valid_to_of(self, doc_id: DocId, version: Version) -> float | None:
+        """The latest valid_to of a version's chunks; None if none."""
+        ...
+
+    def retire(self, doc_id: DocId, version: Version, at: float) -> int:
+        """Sets valid_to on every chunk of a version."""
+        ...
+
+
+def reconcile_retired(versions: VersionStore, index: RetirableIndex) -> int:
+    """Retires in the index every version the version store has ended.
+
+    The version store is the record: a revision is recorded first and its
+    old chunks are retired a moment later, so a job killed in between left
+    a superseded version searchable, unflagged, for days (job 2163,
+    2026-11-06; found by run 2234). The serving job runs this at start-up.
+
+    Returns:
+        How many versions were retired in the index now.
+    """
+    fixed = 0
+    for doc_id, version, valid_to in versions.retired():
+        end = index.valid_to_of(doc_id, version)
+        if end is not None and end > valid_to:
+            index.retire(doc_id, version, valid_to)
+            fixed += 1
+    return fixed
 
 
 @dataclass

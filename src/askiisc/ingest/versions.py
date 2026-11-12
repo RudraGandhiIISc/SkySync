@@ -106,6 +106,10 @@ class VersionStore(Protocol):
         """Returns every known document id."""
         ...
 
+    def retired(self) -> list[tuple[DocId, Version, float]]:
+        """Every version that has ended: (document, version, valid_to)."""
+        ...
+
 
 class InMemoryVersionStore:
     """A thread-safe in-memory VersionStore."""
@@ -204,6 +208,16 @@ class InMemoryVersionStore:
         """Returns every known document id."""
         with self._lock:
             return sorted(self._docs)
+
+    def retired(self) -> list[tuple[DocId, Version, float]]:
+        """Every version that has ended: (document, version, valid_to)."""
+        with self._lock:
+            return [
+                (r.doc_id, r.version, r.valid_to)
+                for history in self._docs.values()
+                for r in history
+                if r.valid_to is not None
+            ]
 
 
 _SCHEMA = """
@@ -354,6 +368,15 @@ class SQLiteVersionStore:
                 "SELECT DISTINCT doc_id FROM versions ORDER BY doc_id"
             ).fetchall()
         return [DocId(r[0]) for r in rows]
+
+    def retired(self) -> list[tuple[DocId, Version, float]]:
+        """Every version that has ended: (document, version, valid_to)."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT doc_id, version, valid_to FROM versions "
+                "WHERE valid_to IS NOT NULL"
+            ).fetchall()
+        return [(DocId(r[0]), Version(int(r[1])), float(r[2])) for r in rows]
 
     def fingerprints(self) -> dict[DocId, str]:
         """Newest fingerprint of every document (to seed the reconciler).

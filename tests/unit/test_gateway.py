@@ -172,6 +172,26 @@ class _ColdWorkers:
         self.requests += 1
 
 
+async def test_an_answer_made_across_a_revision_is_not_cached() -> None:
+    # Regression (run 2234): a revision became visible while an answer was
+    # being generated; the answer still used the old version but was cached
+    # under the new generation and served unflagged to later askers.
+    stack = build()
+    original = stack.deps.rag.prepare
+
+    async def prepare_then_revise(*args: object, **kwargs: object) -> object:
+        prepared = await original(*args, **kwargs)  # type: ignore[arg-type]
+        stack.generation[0] += 1  # the new version becomes visible now
+        return prepared
+
+    stack.deps.rag.prepare = prepare_then_revise  # type: ignore[method-assign]
+    assert not final(await stack.ask("u_cds_stu", QUESTION))["cache_hit"]
+    stack.deps.rag.prepare = original  # type: ignore[method-assign]
+    # Not served from the cache: this answer is made from the new version.
+    assert not final(await stack.ask("u_cds_stu", QUESTION))["cache_hit"]
+    assert final(await stack.ask("u_cds_stu", QUESTION))["cache_hit"]
+
+
 async def test_cold_start_holds_request_with_warming_event() -> None:
     workers = _ColdWorkers(becomes_ready=True)
     stack = build(workers=workers)

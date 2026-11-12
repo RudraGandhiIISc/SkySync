@@ -495,6 +495,8 @@ class _Session:
         self.answer: Answer | None = None
         self.cache_hit = False
         self._cached: CachedAnswer | None = None
+        # The answer cache's generation when retrieval started (FR-5).
+        self._generation: int | None = None
 
     @property
     def key(self) -> str | None:
@@ -553,6 +555,7 @@ class _Session:
                 yield event
             return
         rag = self.deps.rag
+        self._generation = self.deps.generation()
         self.prepared = await rag.prepare(
             self.caller.token,
             self.body.question,
@@ -596,6 +599,12 @@ class _Session:
         return True
 
     async def _store(self) -> None:
+        # A revision that became visible while this answer was being made
+        # moved the generation: the answer may use the old version, so it
+        # must not be cached under the new one (FR-5; run 2234: 171 such
+        # answers served unflagged up to 107 s after the old version ended).
+        if self._generation != self.deps.generation():
+            return
         key = self.key
         if key is None or self.answer is None or self.prepared is None:
             return
