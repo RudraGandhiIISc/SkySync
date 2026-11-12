@@ -21,7 +21,7 @@ cd "$SLURM_SUBMIT_DIR"
 source slurm/lib.sh
 export HF_HUB_OFFLINE=1
 NEED_MIB=${NEED_MIB:-40000}  # an 8B model in bf16 with a useful KV cache
-MAX_LANES=2
+MAX_LANES=${MAX_LANES:-2}  # at most 2 cards per user; 1 next to another job
 RESULTS=${RESULTS:-$ASKIISC_DATA/results/versioned/v4/qwen3-8b-p2/answers.json}
 declare -A LANE_GPU=()  # pid -> GPU
 

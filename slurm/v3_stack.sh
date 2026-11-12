@@ -9,10 +9,16 @@
 #   cold     20 scripted cold starts each for Qwen3-4B, Qwen3-8B, Qwen3-8B-AWQ
 #   e2       W1 for every registered model, E2_REPS times (default 3)
 #   idle     W3 for T_idle in 0, 60, 300, 900, 86400 s, best model per class
+#   faults   keys refuse unkeyed calls; kill the embedding server, then the
+#            access service, and time the watchdog's recovery (eval/fault_check)
+#   fair2    FR-11 with both departments backlogged: 6 LLM slots, cache off
+#   soak     NFR-5: 1 hour at half load, one worker killed at 30 minutes
 # Direct vLLM parts:
 #   smoke    Falcon3 3B, 7B, 7B-AWQ start and answer (FR-8 replacements)
 #   kv24     each 4-bit model and its parent at one fixed 24 GB budget
 #   e0       throughput sweep for every registered model (slurm/fr8_bench.sh)
+#   e0sel    the same for the selected Qwen3-8B and its 4-bit build (NFR-3)
+#   kvq      kv24's Qwen pair twice more, on the quietest card
 # From the repo root, with no other serving stack up (queue the standing
 # serving job behind it, as for slurm/fr6_stack.sh):
 #   sbatch --export=ALL,V3_PARTS="fresh fr7 nfr1 cold smoke kv24 e0" slurm/v3_stack.sh
@@ -45,6 +51,18 @@ stop() {
 trap 'stop; exit 1' TERM INT
 
 port() { python3 -c "import json;print(json.load(open('$CURRENT'))['ports']['web'])"; }
+
+# empty_gpu: the card with no other job's process and the least memory in
+# use (vLLM counts another process's growth during its profiling against
+# the KV budget, so the FR-8 comparison needs a quiet card).
+empty_gpu() {
+  local busy
+  busy=$(nvidia-smi --query-compute-apps=gpu_uuid --format=csv,noheader | sort -u)
+  nvidia-smi --query-gpu=index,uuid,memory.used --format=csv,noheader,nounits \
+    | tr -d ' ' \
+    | awk -F, -v busy="$busy" '{ print (index(busy, $2) ? 1 : 0), $3, $1 }' \
+    | sort -k1,1n -k2,2n | head -1 | awk '{print $3}'
+}
 
 # up <run dir> [warm]: start a stack with the current environment.
 up() {
@@ -121,6 +139,37 @@ for p in $PARTS; do
           stack "idle-$m-$t" cold 1 "ASKIISC_MODEL=$m ASKIISC_IDLE_TIMEOUT_S=$t" w3 || failed=$((failed + 1))
         done
       done ;;
+    faults)
+      (
+        export ASKIISC_MODEL=qwen3-8b
+        echo "== faults ($(date +%T))"
+        up "$BASE/faults/serve" warm || exit 1
+        uv run python -m eval.fault_check "$BASE/faults/serve" \
+          "http://127.0.0.1:$(port)" "$BASE/faults/report"
+        rc=$?
+        stop
+        exit $rc
+      ) || failed=$((failed + 1)) ;;
+    fair2)
+      stack fairness-backlogged warm 1 \
+        "ASKIISC_MODEL=qwen3-8b ASKIISC_ANSWER_CACHE=off ASKIISC_LLM_CONCURRENCY=6" \
+        fairness || failed=$((failed + 1)) ;;
+    soak)
+      stack soak warm 1 "ASKIISC_MODEL=qwen3-8b ASKIISC_CHAOS=1" \
+        soak --duration-scale 0.25 || failed=$((failed + 1)) ;;
+    kvq)
+      # The Qwen pair of kv24 again, twice each, on a quiet card.
+      for rep in 1 2; do
+        for pair in "Qwen/Qwen3-8B bfloat16" "Qwen/Qwen3-8B-AWQ float16"; do
+          set -- $pair
+          SMOKE_GPU=$(empty_gpu) SMOKE_OUT="$BASE/kvq/${1#*/}-$rep" MODEL=$1 DTYPE=$2 \
+            MEM_FRACTION=0.17 bash slurm/vllm_smoke.sh \
+            > "$BASE/kvq-${1#*/}-$rep.log" 2>&1 || echo "kvq ${1}: did not start"
+        done
+      done ;;
+    e0sel)
+      MAX_LANES=1 bash slurm/fr8_bench.sh qwen3-8b qwen3-8b-awq \
+        > "$BASE/e0sel.log" 2>&1 || failed=$((failed + 1)) ;;
     smoke)
       for r in tiiuae/Falcon3-3B-Instruct tiiuae/Falcon3-7B-Instruct; do
         SMOKE_OUT="$BASE/smoke/${r#*/}" MODEL=$r bash slurm/vllm_smoke.sh \

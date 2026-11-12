@@ -10,7 +10,9 @@ export HF_HOME=${HF_HOME:-/data4/$USER/huggingface}
 # and `state` (BGE-base, 768 dimensions) are kept but no longer served.
 export ASKIISC_CORPUS_DIR=${ASKIISC_CORPUS_DIR:-$ASKIISC_DATA/corpus-v3}
 export ASKIISC_STATE_DIR=${ASKIISC_STATE_DIR:-$ASKIISC_DATA/state-v4}
-export UV_PROJECT_ENVIRONMENT="$ASKIISC_SCRATCH/.venv"
+# A second checkout (a git worktree) sets its own venv, so its editable
+# install never points the shared one at another source tree.
+export UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT:-$ASKIISC_SCRATCH/.venv}
 export UV_CACHE_DIR="$ASKIISC_SCRATCH/uv-cache"
 export SERVE_VENV="$ASKIISC_SCRATCH/serve-venv"
 export PATH="$HOME/.local/bin:$ASKIISC_SCRATCH/bin:$PATH"

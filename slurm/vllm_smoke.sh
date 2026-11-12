@@ -23,6 +23,11 @@ mkdir -p "$OUT"
 nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total \
   --format=csv | tee "$OUT/gpus_before.csv"
 read -r GPU FREE TOTAL < <(pick_gpu)
+if [ -n "${SMOKE_GPU:-}" ]; then  # a card chosen by the caller
+  GPU=$SMOKE_GPU
+  read -r FREE TOTAL < <(nvidia-smi -i "$GPU" \
+    --query-gpu=memory.free,memory.total --format=csv,noheader,nounits | tr -d ',')
+fi
 # MEM_FRACTION fixes the budget (the FR-8 KV comparison at 24 GB: 0.17).
 FRAC=${MEM_FRACTION:-$(mem_fraction "$FREE" "$TOTAL")}
 echo "card $GPU: ${FREE} MiB free of ${TOTAL}; --gpu-memory-utilization $FRAC"
