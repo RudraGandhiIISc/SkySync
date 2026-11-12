@@ -1,4 +1,9 @@
 # GPU-side environment ($SERVE_VENV), separate from the project venv.
 # Pinned: change a version only together with a rerun of baseline-v1.
+# sentence-transformers 5.1.1 -> 5.7.0 (2026-11-12, advisory
+# CVE-2026-68770): on CPU, bge-m3 gives bit-identical embeddings and
+# bge-reranker-v2-m3 the same order (scores within 1e-10), so baseline-v1
+# stands. vLLM stays at 0.11.0 until every result is measured again
+# (SECURITY.md).
 vllm==0.11.0
-sentence-transformers==5.1.1
+sentence-transformers==5.7.0
