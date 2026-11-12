@@ -8,6 +8,7 @@
 #   fr7      W1 x3 with the answer cache off, prefix caching on, then off
 #   nfr1     steady x3 with Qwen3-8B, up to 2 workers (NFR-1)
 #   cold     20 scripted cold starts each for Qwen3-4B, Qwen3-8B, Qwen3-8B-AWQ
+#   cold8    the same for Qwen3-8B alone
 #   e2       W1 for every registered model, E2_REPS times (default 3)
 #   idle     W3 for T_idle in 0, 60, 300, 900, 86400 s, best model per class
 #   faults   keys refuse unkeyed calls; kill the embedding server, then the
@@ -152,6 +153,8 @@ for p in $PARTS; do
       for m in qwen3-4b-instruct-2507 qwen3-8b qwen3-8b-awq; do
         stack "cold-$m" cold 1 "ASKIISC_MODEL=$m ASKIISC_IDLE_TIMEOUT_S=20" cold20 || failed=$((failed + 1))
       done ;;
+    cold8)
+      stack cold-qwen3-8b cold 1 "ASKIISC_MODEL=qwen3-8b ASKIISC_IDLE_TIMEOUT_S=20" cold20 || failed=$((failed + 1)) ;;
     e2)
       for m in $(uv run python -c "from askiisc.llm.models import load_models; print(' '.join(load_models()))"); do
         stack "e2-$m" warm "${E2_REPS:-3}" "ASKIISC_MODEL=$m" w1 || failed=$((failed + 1))
