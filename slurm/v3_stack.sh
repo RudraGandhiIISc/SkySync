@@ -6,7 +6,7 @@
 #   revoke   the FR-3 revocations alone
 #   fresh5   the FR-5 freshness replay and its check alone
 #   fr7      W1 x3 with the answer cache off, prefix caching on, then off
-#   nfr1     steady x3 with Qwen3-8B (NFR-1)
+#   nfr1     steady x3 with Qwen3-8B, up to 2 workers (NFR-1)
 #   cold     20 scripted cold starts each for Qwen3-4B, Qwen3-8B, Qwen3-8B-AWQ
 #   e2       W1 for every registered model, E2_REPS times (default 3)
 #   idle     W3 for T_idle in 0, 60, 300, 900, 86400 s, best model per class
@@ -130,7 +130,9 @@ for p in $PARTS; do
       stack fr7-prefix-on warm 3 "ASKIISC_MODEL=qwen3-8b-awq ASKIISC_ANSWER_CACHE=off ASKIISC_PREFIX_CACHE=on" w1 || failed=$((failed + 1))
       stack fr7-prefix-off warm 3 "ASKIISC_MODEL=qwen3-8b-awq ASKIISC_ANSWER_CACHE=off ASKIISC_PREFIX_CACHE=off" w1 || failed=$((failed + 1)) ;;
     nfr1)
-      stack nfr1 warm 3 "ASKIISC_MODEL=qwen3-8b" steady || failed=$((failed + 1)) ;;
+      # Up to 2 workers, as the serving job runs: at W1's 4.4 questions/s
+      # the autoscaler wants a second one (4 per worker).
+      stack nfr1 warm 3 "ASKIISC_MODEL=qwen3-8b ASKIISC_MAX_WORKERS=2" steady || failed=$((failed + 1)) ;;
     cold)
       for m in qwen3-4b-instruct-2507 qwen3-8b qwen3-8b-awq; do
         stack "cold-$m" cold 1 "ASKIISC_MODEL=$m ASKIISC_IDLE_TIMEOUT_S=20" cold20 || failed=$((failed + 1))
