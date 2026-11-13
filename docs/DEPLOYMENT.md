@@ -21,10 +21,16 @@ its Slurm job; people reach it through an SSH tunnel.
 | People, allowlist, accounts, chats, secrets | `/data4/muthangiv/askiisc/private/` (mode 700) | **never** |
 | Run logs and results | `/data4/muthangiv/askiisc/results/` | no |
 
+These are the team's paths. Under another account the job scripts use
+`/data4/$USER/askiisc` and `/data2/scratch/$USER/askiisc`
+(`slurm/lib.sh`); a command run outside a job uses the same
+`/data4/$USER/askiisc` unless `ASKIISC_DATA` says otherwise.
+
 One Slurm job (`slurm/serve.sh`) runs everything: the chat app and admin
 dashboard, gateway, access service, embedding server, up to 2 vLLM workers
-(scale to zero after 5 idle minutes), Redis, Prometheus, Grafana, Loki,
-Alloy and the Locust UI.
+(scale to zero after 5 idle minutes), Prometheus, Grafana, Loki, Alloy and
+the Locust UI. The answer cache lives in the gateway's memory; no Redis
+server runs in the job (Redis is used only by the integration tests).
 
 ## 2. Before the first deployment
 
@@ -32,7 +38,7 @@ Run once, in order; each is a short job.
 
 ```bash
 sbatch slurm/setup_env.sh          # project venv (Python 3.11) and serve venv (vLLM 0.11)
-sbatch slurm/fetch_services.sh     # Redis, gitleaks, Prometheus, Grafana, Loki, Alloy
+sbatch slurm/fetch_services.sh     # gitleaks, Prometheus, Grafana, Loki, Alloy; Redis for tests
 sbatch slurm/fetch_models.sh Qwen/Qwen3-8B-AWQ Qwen/Qwen3-8B \
   ibm-granite/granite-3.3-8b-instruct BAAI/bge-m3 BAAI/bge-reranker-v2-m3
 ```
@@ -62,10 +68,13 @@ Written by hand, mode 600:
 ### People
 
 ```bash
-srun --partition=low_2h_1gpu --time=00:10:00 --pty \
+sbatch --wait --partition=low_2h_1gpu slurm/run.sh \
   uv run python -m askiisc.web.cli add-institute-admin <name>@iisc.ac.in
 sbatch --partition=low_2h_1gpu slurm/run.sh uv run python -m askiisc.web.cli seed-locust
 ```
+
+`slurm/run.sh` sets the job environment (`slurm/lib.sh`): the project venv
+and `ASKIISC_DATA`.
 
 The institute admin then opens the chat app, chooses **Create account**
 and confirms the e-mailed link (10 minutes). Everyone else is added on the
@@ -189,13 +198,25 @@ and the request log are saved at shutdown.
 ## 10. Security checklist
 
 - Services listen on `127.0.0.1` only (checked by the socket audit in the
-  gate); there is no public address.
+  gate); there is no public address. Every user of the server can reach a
+  loopback port, so the vLLM workers and the embedding server answer only
+  calls that carry the serving job's key (`Authorization: Bearer`, made
+  fresh for each job and passed in their environment, never on a command
+  line); their health checks and the workers' Prometheus counters stay
+  open. vLLM's own `--api-key` is not enough: it leaves `/invocations`
+  open, so the key is checked by our middleware on every path.
+- A watchdog restarts the access service or the embedding server within
+  seconds if either dies (same port and key; the backoff doubles up to
+  60 s if it keeps dying). vLLM workers are replaced by the autoscaler.
 - Only allowlisted `@iisc.ac.in` people can register; passwords are
   Argon2id; sign-in is throttled per address and overall; sessions are
   HttpOnly, SameSite=Strict cookies; state-changing requests need the
   `X-AskIISc` header and a same-site origin.
 - Access checks fail closed; filters run inside the search.
-- No query or answer text in logs; users are salted hashes in the request
-  log and audit; chats are encrypted with `chat.key`.
+- No query or answer text in logs. The audit log stores users and
+  questions only as salted hashes. The request log (`requests.db`,
+  `requests.log`) names the user, so admins can see who uses the service,
+  but holds no question or answer text. Chats are encrypted with
+  `chat.key`.
 - Secrets live only in `private/app/` (mode 600); gitleaks runs in the
   gate. Never commit anything from `/data4`.

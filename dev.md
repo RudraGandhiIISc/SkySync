@@ -46,7 +46,7 @@ document → audit record (hashes only) → streamed to the browser.
 | `config.py` | The single typed settings object, read from `ASKIISC_*` environment variables |
 | `targets.py` | Every numeric target from the PRD as a named constant (no magic numbers) |
 | `clock.py` | Injected time source; `FakeClock` makes tests deterministic |
-| `tokens.py` | Verifies institute SSO tokens (JWT, RS256) |
+| `tokens.py` | Issues and verifies the job's signed tokens (JWT, RS256) that carry a signed-in user's id to the gateway and the access service |
 | `requestid.py` | Request id that ties one question's log lines together |
 
 ### `ingest/` — getting documents into the index (FR-5)
@@ -120,7 +120,7 @@ document → audit record (hashes only) → streamed to the browser.
 | File | Purpose |
 |---|---|
 | `metrics.py` | Prometheus metrics, one registry per component |
-| `tracing.py` | OpenTelemetry spans: ask → access → search → llm → filter |
+| `tracing.py` | OpenTelemetry span helpers (tested, not wired into the services: a request is traced by its `X-Request-Id` in every service's log and by its per-stage timers) |
 | `stages.py`, `timing.py` | Per-request stage timings and serving-node latency/lag |
 | `gpu.py` | NVML GPU sampling at 1 Hz (stands in for DCGM, which needs root) |
 | `cost.py` | Cost model: GPU-hours per 1,000 queries incl. start-up and idle |
@@ -192,7 +192,7 @@ same cases against any access-control implementation.
 2. Permission and version filters go inside the search, never after it.
 3. User identity comes only from the verified session; department and role
    only from the directory.
-4. Never log raw query or answer text; users and queries are salted hashes.
+4. Never log raw query or answer text. The audit log keeps users and queries as salted hashes; the request log names the user but holds no text.
 5. Retrieved chunks are untrusted data; the prompt prefix stays identical.
 6. Superseded versions are never deleted, only retired (`valid_to`); answers
    citing them carry a stale flag.

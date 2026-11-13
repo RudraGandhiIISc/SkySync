@@ -40,7 +40,10 @@ load:       Locust drives one workload per requirement with synthetic users
 
 Everything runs on the CSA `automation` server in Slurm jobs, with no
 containers and no root: one H200 per vLLM worker, every service on
-`127.0.0.1`.
+`127.0.0.1`. Other users of the server can reach a loopback port, so the
+vLLM workers and the embedding server answer only calls carrying the
+serving job's key (`common/servicekey.py`), and the access service checks
+a signed token on every decision.
 
 ## 2. How a question is answered
 
@@ -231,7 +234,14 @@ external files; strict Content-Security-Policy.
   workers, never scale in with work in flight, 30 s hysteresis);
   `controller.py` runs it every second and reaps crashed workers;
   `pool.py` starts `vllm serve` on the least busy H200, sizing its memory
-  from the card's free memory.
+  from the card's free memory (a 4-bit model starts in about 21 GB free,
+  a BF16 8B model needs about 39 GB). When every card is too full for a
+  worker (other users' jobs), a held question ends at once with a "GPUs
+  full" message and a retry time instead of waiting out the 150 s hold
+  (FR-10); the next question tries to start a worker again.
+- `deploy/watchdog.py` restarts the access service or the embedding server
+  if either dies, on the same port and with the same key (backoff 1 s,
+  doubling to 60 s if it keeps dying).
 - Prometheus scrapes the gateway, access service, vLLM workers and Locust;
   Grafana has the "Ask IISc" dashboard (37 panels) and "Ask IISc requests"
   (Loki logs by request id), plus six alert rules

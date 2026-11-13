@@ -9,9 +9,9 @@ quality, and how to run and grade them. Current results are in
 | Folder | What | In git |
 |---|---|---|
 | `eval/datasets/sample/` | Mock users and corpus in the real layout (7 public and 6 restricted mock documents, 11 smoke questions); tests and the e2e stack use it | yes |
-| `eval/datasets/heldout/` | Held-out set v2: 220 questions for FR-1, FR-5, NFR-7 | yes |
+| `eval/datasets/heldout/` | Held-out set v2: 220 questions (the Locust `quality` workload, permission and revision checks) | yes |
 | `eval/datasets/redteam/` | 90 attack cases and the planted documents for NFR-9 | yes |
-| `/data4/muthangiv/askiisc/results/versioned/v4/questions.jsonl` | Edition-aware set: 400 questions about yearly documents | no: some items ask for contact e-mail addresses on public pages, and real addresses are kept out of the repo |
+| `/data4/muthangiv/askiisc/results/versioned/v4/questions.jsonl` | Edition-aware set: 400 questions about yearly documents; the test set of FR-1 and NFR-7 | no: some items ask for contact e-mail addresses on public pages, and real addresses are kept out of the repo |
 
 Real users and the real corpus never enter git; the mock layout mirrors
 them:
@@ -110,6 +110,14 @@ the judge's verdict does not depend on document ids. The permission items
 are unaffected. The revision items need the test circulars' v1-to-v2
 history, which only the old index has: the new index holds each circular
 once (STATUS.md, open items).
+
+The 30 unanswerable items were written for the v2 corpus. The cleaned
+corpus of 30,740 documents holds answers to several of them (an IISc
+Connect article on Mount Kilimanjaro, another on the iPhone), and the
+rubric counts an answer drawn from such a cited page as a missed refusal.
+FR-1 is measured on the edition-aware set, which reuses these 30 items
+and adds 10 about other institutions (section 2); its refusal rate
+carries the same undercount.
 
 ## 4. Red-team suite (90 cases, NFR-9)
 

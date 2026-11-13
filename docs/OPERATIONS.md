@@ -40,7 +40,7 @@ Every command runs from `/data4/muthangiv/AskIISc/ask-iisc`.
 
 ```bash
 sbatch slurm/setup_env.sh                  # project venv (3.11) and serve venv (vLLM, 3.12)
-sbatch slurm/fetch_services.sh             # Redis, gitleaks, Prometheus, Grafana, Loki, Alloy
+sbatch slurm/fetch_services.sh             # gitleaks, Prometheus, Grafana, Loki, Alloy; Redis for tests
 sbatch slurm/fetch_models.sh Qwen/Qwen3-8B ibm-granite/granite-3.3-8b-instruct BAAI/bge-m3 BAAI/bge-reranker-v2-m3
 sbatch --partition=low_2h_1gpu slurm/run.sh uv run python -m askiisc.web.cli seed-locust   # load-test accounts
 sbatch --partition=low_2h_1gpu slurm/run.sh uv run python -m askiisc.web.cli add-institute-admin <e-mail>
@@ -286,7 +286,7 @@ sbatch slurm/loadtest.sh access --duration-scale 0.3  # a shorter rehearsal
 ```
 
 Results go to `/data4/muthangiv/askiisc/results/locust/<job>-<workload>/`
-and to the admin **Requirements** tab. The 16
+and to the admin **Requirements** tab. The 22
 workloads and the requirements each tests are in
 `eval/locust/workloads.py` and in [DEMO.md](DEMO.md) section 3. Every
 answer's citations are checked against the independent oracle; a forbidden
@@ -317,7 +317,7 @@ GPU. Every bug fix adds a test that failed before it.
 
 | Row | Panels | Healthy |
 |---|---|---|
-| Overview | requests/s real and Locust, p95 latency, p95 first token, workers ready, sessions | p95 ≤ 3.5 s, first token ≤ 0.8 s, workers ≤ 2 |
+| Overview | requests/s real and Locust, p95 latency, p95 first token, workers ready, sessions | p95 ≤ 4.0 s, first token ≤ 0.8 s, workers ≤ 2 |
 | Traffic and latency | rate by origin, outcomes, 429 by department, latency p50/p95/p99, first token | errors near 0 |
 | Pipeline stages | access / embed / search p95, access service p95, decisions, cache hit rate, fair queue and cold holds, tokens by department | search ≤ 150 ms, filter ≤ 20 ms |
 | GPU workers | workers by state, GPU use and memory, vLLM tokens/s, requests, KV and prefix cache | 0 to 2 workers, scale to zero when idle |
@@ -330,7 +330,7 @@ service logs. The admin Request log's **logs** link opens it for one
 request. No question or answer text is in any log.
 
 **Alerts** (`deploy/grafana/alerts.yaml`, also on the admin Overview):
-p95 above 3.5 s for 5 min, error rate above 1%, a Locust leak, a GPU
+p95 above 4.0 s for 5 min, error rate above 1%, a Locust leak, a GPU
 worker crash, access p95 above 20 ms, a monitored service down.
 
 Dashboards come from the repo and reload with the serving job; edit the

@@ -75,7 +75,8 @@ sbatch --export=ALL,MODEL=tiiuae/Falcon3-7B-Instruct-AWQ slurm/vllm_smoke.sh
 
 The three models join `llm/models.yaml`, with `FR8_MODEL_COUNT` and the
 registry test set to 9 in the same commit, only once all three answer
-correctly (decided 2026-11-05).
+correctly (decided 2026-11-05). Superseded on 2026-11-12: FR-8 asks for
+six models, two families per size class.
 
 ## Found without a GPU run
 

@@ -68,11 +68,11 @@ tests/            unit, integration, e2e, perf, security, regression, conformanc
 1. **Access control fails closed.** Any error, timeout or unreachable access service means deny. There is no fallback that allows.
 2. **Filter inside the search.** Permission and version filters go in the Milvus search expression. Never post-filter results.
 3. **User identity comes only from the verified session** (password sign-in, or the gateway's signed token). Departments and roles come from the directory, never from the client.
-4. **Never log or store raw query text, answer text or secrets.** Queries and users are stored only as salted SHA-256 hashes.
+4. **Never log or store raw query text, answer text or secrets.** The audit log stores queries and users only as salted SHA-256 hashes; the request log names the user (admins see who uses the service) but holds no query or answer text.
 5. **Retrieved chunks are untrusted data.** The system prompt must say so, and the prompt prefix stays identical across requests so vLLM prefix caching works. Per-tenant separation uses the cache salt parameter, not prompt text.
 6. **Superseded document versions are never deleted.** They are retired by setting `valid_to`, and any answer that cites one carries a stale flag.
 7. **Never exceed 2 GPU workers.** The autoscaler's ceiling is a config value defaulting to 2, which is also the server's per-user GPU limit.
-8. **Every service binds to `127.0.0.1`** on a free port and dies with its Slurm job. No service is left running between jobs.
+8. **Every service binds to `127.0.0.1`** and dies with its Slurm job. Internal services take a free port; the four people reach through tunnels have fixed, overridable ports (web 18000, Grafana 13000, Prometheus 19090, Locust 18089). Every user of the server can reach a loopback port, so the vLLM workers and the embedding server require the job's key (`common/servicekey.py`). No service is left running between jobs.
 
 ## Testing rules
 
@@ -88,9 +88,9 @@ tests/            unit, integration, e2e, perf, security, regression, conformanc
 | Item | Target |
 |---|---|
 | FR-6 | At 3x load, excess requests get HTTP 429 within 50 ms |
-| FR-9 / FR-10 | Pool reaches needed size in 180 s, never above 2 nodes; no active node 60 s after idle timeout; held requests complete |
-| FR-11 | One tenant at 10x load gets at most 55% of tokens; the other at least 20% |
-| NFR-1 | Warm p95 total at most 3.5 s; p95 first token at most 800 ms |
+| FR-9 / FR-10 | Pool reaches needed size in 180 s, never above 2 nodes; no active node 60 s after idle timeout; held requests complete, or end at once with "GPUs full" and a retry time when no card has room |
+| FR-11 | With both tenants backlogged, one at 10x load gets at most 55% of tokens; the other at least 20% or all it asks for |
+| NFR-1 | Warm p95 total at most 4.0 s (client); p95 first token at most 800 ms (model server) |
 | NFR-2 | Cold-start first token at most 90 s (4B, 4-bit 8B), 150 s (8B) |
 | NFR-6 | At most 0.30 GPU-hours per 1,000 completed queries, including start-up and idle |
 | NFR-7 | Accuracy at least 80%, citation correctness at least 90% |

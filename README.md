@@ -22,17 +22,22 @@ Open http://127.0.0.1:18000 and sign in as `u_cds_stu` (CDS student),
 gateway API and access control on a simulated model, sample documents and
 test users, so you can try the UI, the API and who-sees-what without the
 cluster. Answers come from the simulated model, not a real LLM.
+`Correct-horse-9` is the password of these built-in test users of the
+preview only (`tests/web_fixtures.py`, in memory); it opens nothing on a
+real deployment, where people choose their own passwords and load-test
+accounts get a random one.
 
 ## Team SkySync
 
-| Member | SR | E-mail |
-|---|---|---|
-| Rudra Kumar Gandhi | 28638 | rudragandhi@iisc.ac.in |
-| Muthangi Vighnesh | 26224 | muthangiv@iisc.ac.in |
-| Mohammad Haris | 26679 | harism@iisc.ac.in |
+| Member | E-mail |
+|---|---|
+| Rudra Kumar Gandhi | rudragandhi@iisc.ac.in |
+| Muthangi Vighnesh | muthangiv@iisc.ac.in |
+| Mohammad Haris | harism@iisc.ac.in |
 
 Requirements: [PRD.md](PRD.md). Developer guide (what each part of the
-code does): [dev.md](dev.md).
+code does): [dev.md](dev.md). Security policy, and how to report a finding
+privately: [SECURITY.md](SECURITY.md).
 
 ## Install
 
@@ -45,7 +50,7 @@ are set in `slurm/lib.sh` (`ASKIISC_DATA`, `ASKIISC_SCRATCH`, `HF_HOME`).
 ```bash
 git clone https://github.com/RudraGandhiIISc/SkySync.git ask-iisc && cd ask-iisc
 sbatch slurm/setup_env.sh        # project venv (3.11) and serve venv (vLLM, 3.12)
-sbatch slurm/fetch_services.sh   # Redis, gitleaks, Prometheus, Grafana, Loki, Alloy
+sbatch slurm/fetch_services.sh   # gitleaks, Prometheus, Grafana, Loki, Alloy; Redis for tests
 sbatch slurm/fetch_models.sh Qwen/Qwen3-8B BAAI/bge-m3 BAAI/bge-reranker-v2-m3
 # corpus and index (hours): crawl, past editions, catalogue, embed + store
 sbatch slurm/crawl.sh && sbatch slurm/archive.sh && sbatch slurm/catalog.sh

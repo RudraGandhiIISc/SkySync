@@ -50,7 +50,7 @@ Each control, where it lives, and the test that holds it. Tests run in the gate 
 
 | Control | Where | Test |
 |---|---|---|
-| No question or answer text in any log, metric or audit record; users and queries stored as salted SHA-256 hashes | `gateway/audit.py`, `common/requestid.py` | `test_privacy_network.py::test_no_query_text_in_any_log`, `test_gateway.py::test_audit_never_stores_raw_query`, `::test_metrics_endpoint_has_no_query_text`, `test_request_logs.py::test_vllm_logs_request_ids_without_prompts` |
+| No question or answer text in any log, metric or audit record; the audit record stores users and queries as salted SHA-256 hashes (the request log names the user, for admins, but holds no text) | `gateway/audit.py`, `common/requestid.py` | `test_privacy_network.py::test_no_query_text_in_any_log`, `test_gateway.py::test_audit_never_stores_raw_query`, `::test_metrics_endpoint_has_no_query_text`, `test_request_logs.py::test_vllm_logs_request_ids_without_prompts` |
 | Stored chat text encrypted (Fernet key, mode 600) | `web/store.py` | `test_web.py::test_store_encrypts_chat_text` |
 | Temporary chats never stored | `web/chat.py` | `test_web.py::test_temporary_chats_are_never_stored` |
 | Real users only in the private users tree on `/data4`, never in the repository | `slurm/lib.sh` | `test_privacy_network.py::test_no_real_user_ids_in_code_or_data` |

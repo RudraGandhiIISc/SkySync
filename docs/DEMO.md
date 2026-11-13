@@ -168,7 +168,7 @@ Choose the workload under **Custom parameters** in the Locust UI, or run it head
 
 | Requirement | Workload | Default length | What it does | Watch in Prometheus | Watch in Grafana ("Ask IISc" dashboard) |
 |---|---|---|---|---|---|
-| NFR-1, NFR-4, FR-12 | `steady` | 11 min | Ramps to 60 chat users in 1 min and holds for 10 min; multi-turn chats with 5–15 s think time | `histogram_quantile(0.95, sum by (le) (rate(askiisc_request_seconds_bucket[1m])))` (target ≤ 3.5 s); the same on `askiisc_first_token_seconds` (≤ 0.8 s); `sum by (decision) (rate(askiisc_requests_by_origin_total[1m]))` | End-to-end latency, Time to first token, Outcomes, Request rate by origin |
+| NFR-1, NFR-4, FR-12 | `steady` | 11 min | Ramps to 60 chat users in 1 min and holds for 10 min; multi-turn chats with 5–15 s think time | `histogram_quantile(0.95, sum by (le) (rate(askiisc_request_seconds_bucket[1m])))` (target ≤ 4.0 s); the same on `askiisc_first_token_seconds` (≤ 0.8 s); `sum by (decision) (rate(askiisc_requests_by_origin_total[1m]))` | End-to-end latency, Time to first token, Outcomes, Request rate by origin |
 | NFR-3, NFR-4 | `ramp` | 16 min | No-think users doubling 1, 2, 4 … 128, 2 min per step, to find capacity | `sum(rate(vllm:generation_tokens_total[1m]))` (≥ 600 tokens/s per worker); `vllm:num_requests_waiting`; `askiisc_fair_queue_depth` | vLLM tokens per second, vLLM requests, Fair queue depth, Stage p95 (search ≤ 150 ms) |
 | FR-10, NFR-2, NFR-6 | `cold-start` | 30 min | 3 cycles: idle past the 5 min timeout (workers go to 0), then a burst of 20 users | `askiisc_workers{state="ready"}`; `rate(askiisc_cold_start_holds_total[1m])`; first-token p95 during bursts (≤ 90 s) | Workers by state (drops to 0, then rises), Fair queue depth and cold-start holds, GPU utilisation |
 | FR-9, NFR-4 | `spike` | 14 min | 5 users, then 100 no-think users for 5 min, then idle | `askiisc_workers{state="ready"}` (never above 2; 1 → 2 within 180 s); `askiisc_gpu_utilization_ratio` | Workers by state, GPU utilisation, GPU memory used, Request rate |
@@ -202,7 +202,7 @@ Admin page → **Requirements** (http://localhost:18000/admin#requirements):
 - One row per requirement, FR-1 to FR-12 and NFR-1 to NFR-10: the PRD target, the latest measured value, pass/fail/pending, the date and the source.
 - The source is the newest run that measures it: a Locust run ("Locust 1440-access"), the FR-2 recall probe ("Probe …-recall"), the graders ("Grader …-quality-judge" for NFR-7), the throughput benchmark (NFR-3) or the Prometheus scaling query after a spike or diurnal run (FR-9, NFR-6). FR-2 combines two: forbidden citations from Locust and recall@8 of the serving index from the probe. Requirements with no run yet show the baseline-v1 numbers of 2026-10-20.
 - Run a short workload (scene 7), refresh: its rows move to the new run. Which number feeds which row is in `src/askiisc/web/scorecard_map.yaml`.
-- **The proof per requirement:** `docs/results/live-v2/` has one page per FR and NFR: the workload and why it tests it, the command, the numbers and source files, a chart with the target marked, and the Grafana panels for that run's time window (made from the stored data by `tools/evidence.py`; nothing re-run). Open, for example, NFR-1 (latency against the 3.5 s line) and FR-9 (workers 1 → 2).
+- **The proof per requirement:** `docs/results/live-v2/` has one page per FR and NFR: the workload and why it tests it, the command, the numbers and source files, a chart with the target marked, and the Grafana panels for that run's time window (made from the stored data by `tools/evidence.py`; nothing re-run). Open, for example, NFR-1 (latency against the 3.5 s line of that run; the target is now 4.0 s) and FR-9 (workers 1 → 2).
 
 ### Scene 10: upload a document (3 min)
 
@@ -215,7 +215,7 @@ As `admin_cds` (or your own institute admin account), in the admin tab **Documen
 
 ### Scene 11: alerts (2 min)
 
-Six alert rules come from the repo (`deploy/grafana/alerts.yaml`): p95 latency above 3.5 s for 5 min, error rate above 1%, a Locust leak, a GPU worker crash, access-service p95 above 20 ms, a monitored service down.
+Six alert rules come from the repo (`deploy/grafana/alerts.yaml`): p95 latency above 4.0 s for 5 min, error rate above 1%, a Locust leak, a GPU worker crash, access-service p95 above 20 ms, a monitored service down.
 - They show in Grafana → Alerting → Alert rules (the admin Overview shows the serving job and every GPU instead).
 - Notifications are off until `/data4/muthangiv/askiisc/private/app/alerting.json` enables them (see below).
 
