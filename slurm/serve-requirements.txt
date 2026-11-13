@@ -5,5 +5,5 @@
 # bge-reranker-v2-m3 the same order (scores within 1e-10), so baseline-v1
 # stands. vLLM stays at 0.11.0 until every result is measured again
 # (SECURITY.md).
-vllm==0.11.0
+vllm==0.33.0
 sentence-transformers==5.7.0
