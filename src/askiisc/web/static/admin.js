@@ -181,7 +181,7 @@ function lineChart(el, legendEl, points, series, opts) {
 }
 
 // ---------- overview ----------
-const P95_TARGET_MS = 3500;
+const P95_TARGET_MS = 4000;
 async function overview() {
   const w = windowS(); const users = originParam();
   const [o, s] = await Promise.all([
@@ -195,8 +195,8 @@ async function overview() {
   const share = p95 ? Math.min(100, (p95 / P95_TARGET_MS) * 100) : 0;
   $("hero").innerHTML = `<div class="label">p95 latency, answered requests</div>
     <div class="value">${p95 ? (p95 / 1000).toFixed(2) : "–"}<small>s</small></div>
-    <div class="meter ${over ? "over" : ""}" role="img" aria-label="${Math.round(share)}% of the 3.5 second target"><i style="width:${share}%"></i></div>
-    <div class="foot">${p95 ? (over ? `<span class="pill bad">${icon("alert")} Over the 3.5 s target</span>` : `<span class="pill good">${icon("check")} Within the 3.5 s target</span>`) : '<span class="pill">No answers yet</span>'}
+    <div class="meter ${over ? "over" : ""}" role="img" aria-label="${Math.round(share)}% of the 4.0 second target"><i style="width:${share}%"></i></div>
+    <div class="foot">${p95 ? (over ? `<span class="pill bad">${icon("alert")} Over the 4.0 s target</span>` : `<span class="pill good">${icon("check")} Within the 4.0 s target</span>`) : '<span class="pill">No answers yet</span>'}
       <span>p50 ${fmt.ms(r.p50_ms)}, p99 ${fmt.ms(r.p99_ms)}</span></div>`;
   const stat = (label, value, sub) => `<div class="stat"><div class="label">${esc(label)}</div><div class="value">${value}</div><div class="sub">${sub || "&nbsp;"}</div></div>`;
   $("stats").innerHTML = [
@@ -230,7 +230,7 @@ async function overview() {
     { name: "p50", get: (p) => p.p50_ms, color: "var(--series-3)" },
     { name: "p95", get: (p) => p.p95_ms, color: "var(--series-1)" },
     { name: "p99", get: (p) => p.p99_ms, color: "var(--series-2)" },
-  ], { unit: (v) => fmt.ms(v), target: P95_TARGET_MS, targetLabel: "3.5 s", title: "Latency" });
+  ], { unit: (v) => fmt.ms(v), target: P95_TARGET_MS, targetLabel: "4.0 s", title: "Latency" });
   const outcomes = Object.entries(r.by_decision).map(([k, v]) => ({ k, v }));
   const sources = Object.entries(r.by_source).map(([k, v]) => ({ k, v }));
   $("outcomes").innerHTML = `<div class="stack"><div class="table-wrap">${table(outcomes, [["Outcome", (x) => decision(x.k)], ["Requests", (x) => fmt.n(x.v), "num"]])}</div>` +

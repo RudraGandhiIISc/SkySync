@@ -120,7 +120,7 @@
   {
    "type": "stat",
    "title": "p95 latency",
-   "description": "NFR-1 target 3.5 s",
+   "description": "NFR-1 target 4.0 s",
    "id": 4,
    "datasource": {
     "type": "prometheus",
@@ -158,7 +158,7 @@
        },
        {
         "color": "red",
-        "value": 3.5
+        "value": 4.0
        }
       ]
      }

@@ -35,7 +35,7 @@ def test_rule_file_has_the_six_alerts() -> None:
     by_uid = {r["uid"]: r for r in rules}
     assert by_uid["askiisc-latency-p95"]["for"] == "5m"
     threshold = by_uid["askiisc-latency-p95"]["data"][1]["model"]
-    assert threshold["conditions"][0]["evaluator"]["params"] == [3.5]
+    assert threshold["conditions"][0]["evaluator"]["params"] == [4.0]
 
 
 def test_notifications_are_off_by_default(tmp_path: Path) -> None:

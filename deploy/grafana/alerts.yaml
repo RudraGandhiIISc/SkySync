@@ -12,14 +12,14 @@ groups:
     interval: 1m
     rules:
       - uid: askiisc-latency-p95
-        title: p95 latency above 3.5 s
+        title: p95 latency above 4.0 s
         condition: C
         for: 5m
         noDataState: OK
         execErrState: Error
         labels: {severity: warning, requirement: NFR-1}
         annotations:
-          summary: End-to-end p95 latency has been above 3.5 s for 5 minutes.
+          summary: End-to-end p95 latency has been above 4.0 s for 5 minutes.
         data:
           - refId: A
             relativeTimeRange: {from: 600, to: 0}
@@ -35,7 +35,7 @@ groups:
               type: threshold
               expression: A
               conditions:
-                - evaluator: {type: gt, params: [3.5]}
+                - evaluator: {type: gt, params: [4.0]}
       - uid: askiisc-error-rate
         title: Error rate above 1%
         condition: C

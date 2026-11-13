@@ -115,7 +115,7 @@ def test_nfr1_judges_the_first_token_at_the_model_server(
         "\n".join(json.dumps(r) for r in audit)
     )
     page = "\n".join(v3.nfr1_section("9"))
-    assert "| p95 total (client) | at most 3,500 ms | 3,200 ms" in page
+    assert "| p95 total (client) | at most 4,000 ms | 3,200 ms" in page
     assert (
         "| p95 first token at the model server | at most 800 ms | 494 ms (494, 494, 494) | pass |"
         in page

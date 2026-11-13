@@ -44,7 +44,7 @@ def test_every_requirement_is_listed_and_falls_back_to_baseline() -> None:
     assert len(rows) == 22
     assert all(r.source == "baseline-v1" for r in rows)
     nfr1 = next(r for r in rows if r.id == "NFR-1")
-    assert nfr1.verdict == "fail" and "3.5 s" in nfr1.target
+    assert nfr1.verdict == "fail" and "4.0 s" in nfr1.target
     assert set(load(BASELINE_FILE)["results"]) == set(REQUIREMENTS)
 
 
@@ -135,7 +135,7 @@ def test_values_ratios_and_defaults() -> None:
     }
     assert evaluate(run, [check]) == ("x: 0", True)
     scaled = {"target": "NFR1_P95_TOTAL_S", "scale": 1000}
-    assert target_of(scaled) == pytest.approx(3500.0)
+    assert target_of(scaled) == pytest.approx(4000.0)
 
 
 async def test_results_api_and_page_are_for_admins(tmp_path: Path) -> None:

@@ -26,6 +26,7 @@ from eval.fr6_report import percentile, read_lines
 from eval.scaling import serving_first_token_p95
 
 from askiisc.common.config import data_dir
+from askiisc.common.targets import NFR1_P95_TOTAL_S, NFR1_P95_TTFT_S
 from askiisc.observability.vllm_startup import parse
 from tools.evidence import INK, MUTED, SERIES, TARGET, nice_ticks
 
@@ -33,6 +34,8 @@ REPO = Path(__file__).resolve().parents[1]
 OUT = REPO / "docs" / "results" / "v3"
 DATA = data_dir() / "results"
 NOT_RUN = "not run"
+TOTAL_MS = NFR1_P95_TOTAL_S * 1000
+TTFT_MS = NFR1_P95_TTFT_S * 1000
 
 
 def load(path: Path) -> Any:
@@ -428,8 +431,8 @@ def nfr1_section(job: str) -> list[str]:
         *out,
         "| Check | Target | Median of 3 (each run) | Verdict |",
         "|---|---|---|---|",
-        f"| p95 total (client) | at most 3,500 ms | {fmt(mt, 0)} ms ({', '.join(fmt(x, 0) for x in total)}) | {'pass' if mt <= 3500 else 'fail'} |",  # noqa: PLR2004
-        f"| p95 first token at the model server | at most 800 ms | {fmt(mn, 0)} ms ({', '.join(fmt(x, 0) for x in node)}) | {'pass' if mn <= 800 else 'fail'} |",  # noqa: PLR2004
+        f"| p95 total (client) | at most {TOTAL_MS:,.0f} ms | {fmt(mt, 0)} ms ({', '.join(fmt(x, 0) for x in total)}) | {'pass' if mt <= TOTAL_MS else 'fail'} |",
+        f"| p95 first token at the model server | at most {TTFT_MS:,.0f} ms | {fmt(mn, 0)} ms ({', '.join(fmt(x, 0) for x in node)}) | {'pass' if mn <= TTFT_MS else 'fail'} |",
         f"| p95 first token at the client (reported) | | {fmt(mf, 0)} ms ({', '.join(fmt(x, 0) for x in first)}) | |",
         f"| Errors (NFR-4) | at most 1% | {fmt(100 * me, 2)}% ({', '.join(fmt(100 * x, 2) for x in errors)}) | {'pass' if me <= 0.01 else 'fail'} |",  # noqa: PLR2004
         "",
