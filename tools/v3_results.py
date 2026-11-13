@@ -405,7 +405,7 @@ def nfr1_section(job: str) -> list[str]:
     records, PRD NFR-1), with the client's figure alongside.
     """
     base = DATA / "v3" / job / "nfr1"
-    total, first, node, errors = [], [], [], []
+    total, first, node, errors, busy = [], [], [], [], []
     for k in (1, 2, 3):
         t = stats_row(base / f"rep{k}", "chat message")
         ft = stats_row(base / f"rep{k}", "chat message (first token)")
@@ -423,6 +423,7 @@ def nfr1_section(job: str) -> list[str]:
             )
             node.append((p95 or 0.0) * 1000)
             errors.append(summary["failures"] / max(1, summary["requests"]))
+            busy.append(busy_share(summary))
     out = ["## NFR-1 and NFR-4: Qwen3-8B, `steady`, 60 users", ""]
     if not total:
         return [*out, f"{NOT_RUN}.", ""]
@@ -435,10 +436,18 @@ def nfr1_section(job: str) -> list[str]:
         f"| p95 first token at the model server | at most {TTFT_MS:,.0f} ms | {fmt(mn, 0)} ms ({', '.join(fmt(x, 0) for x in node)}) | {'pass' if mn <= TTFT_MS else 'fail'} |",
         f"| p95 first token at the client (reported) | | {fmt(mf, 0)} ms ({', '.join(fmt(x, 0) for x in first)}) | |",
         f"| Errors (NFR-4) | at most 1% | {fmt(100 * me, 2)}% ({', '.join(fmt(100 * x, 2) for x in errors)}) | {'pass' if me <= 0.01 else 'fail'} |",  # noqa: PLR2004
+        f"| Questions turned away with 429 (admission; reported) | | {fmt(100 * med(busy), 2)}% ({', '.join(fmt(100 * x, 2) for x in busy)}) | |",
         "",
         f"Raw files: `{base}/`.",
         "",
     ]  # fmt: skip
+
+
+def busy_share(summary: dict[str, Any]) -> float:
+    """Share of chat messages that admission turned away with 429."""
+    count = {r["name"]: r["requests"] for r in summary.get("by_request", [])}
+    refused = count.get("chat message [429 busy]", 0)
+    return refused / max(1, refused + count.get("chat message", 0))
 
 
 def _cold_verdict(ttft: list[float], load_s: list[float], limit: int) -> str:

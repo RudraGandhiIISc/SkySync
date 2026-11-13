@@ -99,7 +99,11 @@ def test_nfr1_judges_the_first_token_at_the_model_server(
         start = 1000.0 * k
         (run / "summary.json").write_text(
             json.dumps({"started": start, "finished": start + 600,
-                        "requests": 1000, "failures": k})
+                        "requests": 1000, "failures": k,
+                        "by_request": [
+                            {"name": "chat message", "requests": 95},
+                            {"name": "chat message [429 busy]",
+                             "requests": 5 * (k - 1)}]})
         )  # fmt: skip
         (run / "locust_stats.csv").write_text(
             "Type,Name,95%\n"
@@ -123,5 +127,10 @@ def test_nfr1_judges_the_first_token_at_the_model_server(
     assert "| p95 first token at the client (reported) | | 1,700 ms" in page
     assert (
         "| Errors (NFR-4) | at most 1% | 0.20% (0.10, 0.20, 0.30) | pass |"
+        in page
+    )
+    # 429s are admission, not errors; they are reported beside them.
+    assert (
+        "| Questions turned away with 429 (admission; reported) | | 5.00% (0.00, 5.00, 9.52) | |"
         in page
     )

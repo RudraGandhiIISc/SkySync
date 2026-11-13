@@ -92,3 +92,10 @@ def test_fr5_after_the_fixes_needs_zero_unflagged_answers(
     result["audit_unflagged"] = 1
     (report / "freshness.json").write_text(json.dumps(result))
     assert "Verdict: fail." in "\n".join(br.fresh5_section("5"))
+
+
+def test_fairness_users_come_from_the_run() -> None:
+    assert br.user_split({"peak_users": 88}) == (80, 8)
+    logins = {"by_request": [{"name": "login", "requests": 44}]}
+    assert br.user_split({"peak_users": 0, **logins}) == (40, 4)
+    assert br.user_split({}) == (40, 4)

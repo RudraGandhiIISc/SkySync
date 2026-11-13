@@ -2,20 +2,22 @@
 """Compiles docs/results/rt-baseline/README.md: the runs behind rt-baseline.
 
 Reads only result files under $ASKIISC_DATA/results (never re-runs
-anything). Three Slurm jobs of slurm/v3_stack.sh made them:
+anything). Five Slurm jobs of slurm/v3_stack.sh made them:
 
 - V3 (`kv24 fresh nfr1 cold`): FR-5 and FR-3, NFR-1, NFR-2 and FR-10, and
   the Granite pair of the FR-8 KV-room check;
 - KV (`kvq e0sel`): the Qwen pair of the KV check on a quiet card, and the
   E0 sweep of Qwen3-8B and Qwen3-8B-AWQ (NFR-3, FR-7);
-- NEW (`faults fresh5 fair2 cold8 soak nfr1`), on the release code:
-  service keys and the watchdog (NFR-9, FR-4, NFR-5), FR-5 after its two
-  fixes, FR-11 with both departments backlogged, Qwen3-8B's cold starts
-  again (FR-10, NFR-2), the NFR-5 soak and NFR-1 again.
+- NEW (`faults fresh5 fair2 cold8 soak`), on the release code: FR-5 after
+  its two fixes and Qwen3-8B's cold starts again (FR-10, NFR-2);
+- FAULTS (`faults fair2`): service keys and the watchdog (NFR-9, FR-4,
+  NFR-5) after the check's fix;
+- FINAL (`nfr1 fair3 soak`): NFR-1 with up to two workers, FR-11 with
+  both departments backlogged and the NFR-5 soak.
 
 Run (inside Slurm):
     python -m tools.baseline_results --v3 2234 --kv 2238 --new 2259 \
-        --faults <job of the last fault check>
+        --faults 2274 --final 2314
 """
 
 from __future__ import annotations
@@ -42,6 +44,7 @@ FR11_MIN_LIGHT = 0.20
 NFR5_MIN_SUCCESS = 0.99
 NFR5_RESTORE_S = 180.0
 FR5_DEMOTION_S = 900.0
+FAIRNESS_USERS = 44
 
 
 def kv_tokens(log: Path) -> tuple[float, int] | None:
@@ -262,10 +265,11 @@ def fairness_section(new_job: str) -> list[str]:
         return [*out, f"{v3.NOT_RUN}.", ""]
     heavy, light = sorted(shares.values(), reverse=True)[:2]
     ok = heavy <= FR11_MAX_HEAVY and light >= FR11_MIN_LIGHT
+    busy, quiet = user_split(summary or {})
     return [
         *out,
-        "`fairness` workload: 40 users of the busy department and 4 of the",
-        "quiet one, all asking back to back (10:1); 6 LLM slots and the",
+        f"`fairness` workload: {busy} users of the busy department and {quiet} of",
+        "the quiet one, all asking back to back (10:1); 6 LLM slots and the",
         "answer cache off, so both departments always have more requests",
         "waiting than their fair share.",
         "",
@@ -277,6 +281,18 @@ def fairness_section(new_job: str) -> list[str]:
         f"Verdict: {'pass' if ok else 'fail'}. Raw files: `{base}/` (audit records and the Locust run).",
         "",
     ]
+
+
+def user_split(summary: dict[str, Any]) -> tuple[int, int]:
+    """Busy and quiet users of a fairness run (10:1; 44 by default)."""
+    users = summary.get("peak_users") or sum(
+        r["requests"]
+        for r in summary.get("by_request", [])
+        if r["name"] == "login"
+    )
+    users = users or FAIRNESS_USERS
+    quiet = round(users / 11)
+    return users - quiet, quiet
 
 
 def soak_section(new_job: str) -> list[str]:
@@ -324,16 +340,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--kv", required=True)
     parser.add_argument("--new", required=True)
     parser.add_argument("--faults", help="job of the final fault check")
+    parser.add_argument("--final", help="job of the NFR-1, FR-11, NFR-5 runs")
     args = parser.parse_args(argv)
+    final = args.final or args.new
     lines = [
         "# Evidence for the red-team baseline",
         "",
         "Compiled by `tools/baseline_results.py` from raw result files only.",
         f"Jobs {args.v3} and {args.kv} ran the code of `main` at 74401a5;",
-        f"job {args.new} ran the release code (service keys, watchdog, full-GPU",
-        "handling). Every run used one GPU worker on a card that other users'",
-        "jobs could also use (risk R-3). Qwen3-8B-AWQ served the FR-5 and FR-3",
-        "runs; Qwen3-8B served the rest.",
+        "the later jobs ran the release code (service keys, watchdog,",
+        "full-GPU handling). Every run used one GPU worker, except NFR-1 of",
+        "the release code (up to two, as the serving job does), on cards that",
+        "other users' jobs could also use. Qwen3-8B-AWQ served the FR-5 and",
+        "FR-3 runs; Qwen3-8B served the rest.",
         "",
         *titled(
             v3.fresh_section(args.v3),
@@ -342,14 +361,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
         *fresh5_section(args.new),
         *titled(v3.nfr1_section(args.v3), args.v3, "code at 74401a5"),
-        *titled(v3.nfr1_section(args.new), args.new, "release code"),
+        *titled(v3.nfr1_section(final), final, "release code"),
         *titled(v3.cold_section(args.v3), args.v3, "code at 74401a5"),
         *titled(v3.cold_section(args.new), args.new, "release code"),
         *kv_section(args.v3, args.kv),
         *e0_section(args.kv),
         *faults_section(args.faults or args.new),
-        *fairness_section(args.new),
-        *soak_section(args.new),
+        *fairness_section(final),
+        *soak_section(final),
     ]
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "README.md").write_text("\n".join(lines))
