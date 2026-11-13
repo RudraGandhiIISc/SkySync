@@ -14,6 +14,7 @@
 #   faults   keys refuse unkeyed calls; kill the embedding server, then the
 #            access service, and time the watchdog's recovery (eval/fault_check)
 #   fair2    FR-11 with both departments backlogged: 6 LLM slots, cache off
+#   fair3    the same with 88 users (8 quiet, 80 busy)
 #   soak     NFR-5: 1 hour at half load, one worker killed at 30 minutes
 # Direct vLLM parts:
 #   smoke    Falcon3 3B, 7B, 7B-AWQ start and answer (FR-8 replacements)
@@ -180,6 +181,13 @@ for p in $PARTS; do
       stack fairness-backlogged warm 1 \
         "ASKIISC_MODEL=qwen3-8b ASKIISC_ANSWER_CACHE=off ASKIISC_LLM_CONCURRENCY=6" \
         fairness || failed=$((failed + 1)) ;;
+    fair3)
+      # As fair2 with 8 quiet and 80 busy users (10:1): 4 quiet users cannot
+      # keep a request waiting at the fair queue while each next one is in
+      # retrieval, so the quiet department was not backlogged (job 2274).
+      stack fairness-backlogged warm 1 \
+        "ASKIISC_MODEL=qwen3-8b ASKIISC_ANSWER_CACHE=off ASKIISC_LLM_CONCURRENCY=6" \
+        fairness --peak-users 88 || failed=$((failed + 1)) ;;
     soak)
       stack soak warm 1 "ASKIISC_MODEL=qwen3-8b ASKIISC_CHAOS=1" \
         soak --duration-scale 0.25 || failed=$((failed + 1)) ;;
