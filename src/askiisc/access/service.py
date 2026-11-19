@@ -216,13 +216,22 @@ def create_app(  # noqa: PLR0915 - one route table, read top to bottom
     ) -> dict[str, object]:
         existing = policies.snapshot()[1].get(doc_id)
         if existing is None:
+            # A deleted policy's owners still own the id (issue #13): to
+            # anyone else it is taken, as with a live policy.
+            former = policies.former_owners(doc_id)
+            if former is not None:
+                require(may_manage_policy(directory.get(user), former))
             raise HTTPException(status_code=404, detail="unknown document")
         require(may_manage_policy(directory.get(user), existing.owners))
         return existing.model_dump(mode="json")
 
     def current_owners(doc_id: DocId) -> frozenset[str] | None:
+        # A deleted policy's owners still count: re-creating it is a change
+        # of owners like any other (issue #13). None: a new document.
         existing = policies.snapshot()[1].get(doc_id)
-        return None if existing is None else existing.owners
+        if existing is not None:
+            return existing.owners
+        return policies.former_owners(doc_id)
 
     @app.put("/v1/policy/{doc_id}")
     async def put_policy(
