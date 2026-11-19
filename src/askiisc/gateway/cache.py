@@ -3,7 +3,9 @@
 key = H(permission-set fingerprint, policy version, corpus generation,
 normalised question hash). A user with a different permission set, a policy
 change or any new document version produces a different key, so stale or
-foreign entries are never served.
+foreign entries are never served. A version whose end was set in advance
+(an edition window) ends without a new key: the entry's `valid_until`
+stops the gateway serving it from that moment.
 """
 
 from __future__ import annotations
@@ -22,12 +24,23 @@ _SPACES = re.compile(r"\s+")
 
 
 class CachedAnswer(BaseModel):
-    """What the cache stores for one key."""
+    """What the cache stores for one key.
+
+    Attributes:
+        answer: The answer.
+        documents: (document, version) pairs it was made from.
+        chunk_ids: The chunks in its prompt.
+        valid_until: The earliest end (`valid_to`) of those versions still
+            current when it was made; from then on the entry is not served,
+            because the answer would cite a superseded version unflagged
+            (FR-5). None: no end is set.
+    """
 
     model_config = ConfigDict(frozen=True)
     answer: Answer
     documents: tuple[tuple[str, int], ...]
     chunk_ids: tuple[str, ...]
+    valid_until: float | None = None
 
 
 def normalise(question: str) -> str:

@@ -605,6 +605,8 @@ class _Session:
         self._cached: CachedAnswer | None = None
         # The answer cache's generation when retrieval started (FR-5).
         self._generation: int | None = None
+        # When the answer's stale flags were set (FR-5).
+        self._flagged_at: float | None = None
 
     @property
     def key(self) -> str | None:
@@ -677,6 +679,7 @@ class _Session:
             async for event in self._generate():
                 yield event
         with self.timer.measure("finish"):
+            self._flagged_at = self.deps.clock.now()
             answer = rag.finish(self.prepared)
         with self.timer.measure("filter"):
             result = await filter_answer(
@@ -699,7 +702,7 @@ class _Session:
     async def _from_cache(self) -> bool:
         key = self.key
         cached = None if key is None else await self.deps.cache.get(key)
-        if cached is None:
+        if cached is None or self._ended(cached):
             return False
         self.answer, self.cache_hit = cached.answer, True
         self._cached = cached
@@ -716,13 +719,33 @@ class _Session:
         key = self.key
         if key is None or self.answer is None or self.prepared is None:
             return
-        docs = tuple(
-            sorted({(c.doc_id, int(c.version)) for c in self.prepared.chunks})
-        )
-        ids = tuple(c.id for c in self.prepared.chunks)
+        chunks = self.prepared.chunks
+        docs = tuple(sorted({(c.doc_id, int(c.version)) for c in chunks}))
+        # An edition's end is set in advance and moves no generation, so
+        # the entry carries the earliest end of the versions it used and is
+        # not served from then on (FR-5, issue #8). Ends from the moment
+        # the stale flags were set count: one that passed while the answer
+        # was being checked would otherwise slip through unflagged.
+        since = self._flagged_at
+        if since is None:  # pragma: no cover - finish always comes first
+            since = self.deps.clock.now()
+        ends = [
+            e for c in chunks if (e := c.valid_to) is not None and e > since
+        ]
         await self.deps.cache.set(
-            key, CachedAnswer(answer=self.answer, documents=docs, chunk_ids=ids)
+            key,
+            CachedAnswer(
+                answer=self.answer,
+                documents=docs,
+                chunk_ids=tuple(c.id for c in chunks),
+                valid_until=min(ends, default=None),
+            ),
         )
+
+    def _ended(self, cached: CachedAnswer) -> bool:
+        """Whether a version a cached answer used has ended since (FR-5)."""
+        end = cached.valid_until
+        return end is not None and self.deps.clock.now() >= end
 
     async def _hold_for_worker(self) -> AsyncIterator[bytes]:
         workers = self.deps.workers
