@@ -27,6 +27,14 @@ preview only (`tests/web_fixtures.py`, in memory); it opens nothing on a
 real deployment, where people choose their own passwords and load-test
 accounts get a random one.
 
+## Red-team baseline (DS252)
+
+The red teams tested tag `rt-baseline`, commit `78c72ab`
+(`78c72abf8e49907291c820662c527bb6f59a334c`, the same commit as
+`v2026.11.13`). The fixes for the issues they filed are on branch
+`phase-24/red-team-fixes`, one commit per issue, each with a regression
+test in `tests/unit/test_rt*.py`.
+
 ## Team SkySync
 
 | Member | E-mail |
