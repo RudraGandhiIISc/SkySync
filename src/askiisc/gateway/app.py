@@ -7,6 +7,11 @@ Events: `warming` (a GPU worker is starting), `token` (answer text),
 `answer` (final text and citations; replaces the streamed text),
 `error`. Rejections before streaming use HTTP 401, 403, 413, 422 and 429.
 Every response carries `X-Request-Id`, the id of its audit record (FR-12).
+
+Access is always decided at the time of the request. `as_of` only chooses
+which document versions are searched, and is never later than now: a
+client-chosen time must not open a document before its policy window or
+reopen it after (FR-2, NFR-10; issues #6 and #12).
 """
 
 from __future__ import annotations
@@ -218,7 +223,7 @@ class AskRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     question: str = Field(min_length=1, max_length=8192)
-    as_of: float | None = None
+    as_of: float | None = Field(default=None, allow_inf_nan=False)
     history: list[Turn] = Field(
         default_factory=list, max_length=HISTORY_MAX_TURNS
     )
@@ -508,6 +513,9 @@ async def _ask(
     claim: Claim | None = None,
 ) -> Response:
     arrival = _arrive(deps) if claim is None else claim.arrival
+    if body.as_of is not None:  # never a time after now (issue #6)
+        now = deps.clock.now()
+        body = body.model_copy(update={"as_of": min(body.as_of, now)})
 
     def reject(
         caller: Caller, decision: Decision, status: int, why: RefusalReason
@@ -538,7 +546,8 @@ async def _ask(
         ticket = claim.ticket
     try:
         with arrival.timer.measure("access"):
-            allowed = await deps.access.filter(caller.token, body.as_of)
+            # Who may read what is decided now, whatever `as_of` says.
+            allowed = await deps.access.filter(caller.token)
     except AccessDenied as err:
         if claim is None:  # a claim is released by its middleware
             deps.admission.release(ticket, completed=False)

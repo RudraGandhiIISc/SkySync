@@ -8,6 +8,7 @@ admin of the document's owning department, or an institute admin.
 from __future__ import annotations
 
 import logging
+import math
 import time
 from collections.abc import Callable
 from typing import Literal
@@ -105,6 +106,20 @@ class AccessMetrics:
         )
 
 
+def decision_time(clock: Clock, at: float | None) -> float:
+    """The time a decision is made for: now, or the caller's finite time.
+
+    Raises:
+        HTTPException: 422 for NaN or an infinite time (NaN would pass the
+            start of a validity window).
+    """
+    if at is None:
+        return clock.now()
+    if not math.isfinite(at):
+        raise HTTPException(status_code=422, detail="at must be a finite time")
+    return at
+
+
 PolicyListener = Callable[[str, DocPolicy | DocId], None]
 """Called after a change: ("put", policy) or ("delete", doc_id)."""
 
@@ -164,7 +179,7 @@ def create_app(  # noqa: PLR0915 - one route table, read top to bottom
         user: UserId = Depends(caller),  # noqa: B008
     ) -> dict[str, object]:
         started = time.perf_counter()
-        at = clock.now() if body.at is None else body.at
+        at = decision_time(clock, body.at)
         decision = engine.authorize(user, body.doc_id, at)
         elapsed = time.perf_counter() - started
         metrics.seconds.labels("authorize").observe(elapsed)
@@ -181,7 +196,7 @@ def create_app(  # noqa: PLR0915 - one route table, read top to bottom
         user: UserId = Depends(caller),  # noqa: B008
     ) -> dict[str, object]:
         started = time.perf_counter()
-        at = clock.now() if body.at is None else body.at
+        at = decision_time(clock, body.at)
         if body.compact:
             compact = engine.filter_compact(user, at)
             reply: dict[str, object] = {

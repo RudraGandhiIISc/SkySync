@@ -102,12 +102,13 @@ class Retriever:
         at: float | None = None,
         timer: StageTimer | None = None,
     ) -> SearchResult:
-        """Finds the best chunks the user may read.
+        """Finds the best chunks the user may read now.
 
         Args:
             token: The user's verified SSO token.
             query: The question.
-            at: As-of time; None means now.
+            at: The time whose document versions are searched (as of);
+                None or a later time means now. Access never depends on it.
             timer: The request's stage timer, if it keeps one.
 
         Returns:
@@ -118,10 +119,13 @@ class Retriever:
         """
         started = self._now(timer)
         try:
-            allowed = await self._access.filter(token, at)
+            # Who may read what is decided now; `at` only picks the
+            # versions searched, never later than now (issues #6, #12).
+            allowed = await self._access.filter(token)
         finally:
             self._done("access", started, timer)
-        when = self._clock.now() if at is None else at
+        now = self._clock.now()
+        when = now if at is None else min(at, now)
         if not allowed.doc_ids:
             return SearchResult((), allowed.policy_version, when)
         started = self._now(timer)
