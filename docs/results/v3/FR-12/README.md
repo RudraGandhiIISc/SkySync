@@ -17,7 +17,10 @@ Each audit record now also holds:
   minus the named stages, never below 0;
 - `reason`: a fixed code for a refusal (`invalid_token`,
   `not_in_directory`, `question_too_long`, `rate_limited`,
-  `access_check_timeout`, `access_check_failed`).
+  `access_check_timeout`, `access_check_failed`, `gpus_full`, and since
+  2026-11-19 `invalid_request` for a body that could not be parsed or
+  failed validation (HTTP 400 or 422, issue #14) and `client_closed` for
+  a client that left before its answer).
 
 Every response carries `X-Request-Id`, the id of its audit record, and
 Locust writes one line per request it sends (`client_requests.jsonl`:

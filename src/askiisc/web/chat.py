@@ -8,6 +8,11 @@ never stored; their history comes from the browser.
 When a chat is opened, any earlier answer that cites a document the user
 can no longer read is hidden, and such answers are never sent back to
 the model as history (FR-3).
+
+A chat answers one question at a time: a second send or regenerate while
+an answer is being written gets 409, so turns never interleave (issue #9).
+A chat deleted while it is answered keeps nothing: messages are added
+only to a chat that still exists (issue #10).
 """
 
 from __future__ import annotations
@@ -36,14 +41,17 @@ from askiisc.gateway.app import (
     sse,
 )
 from askiisc.gateway.early import claim_of
+from askiisc.gateway.streams import CloseHook, ManagedStream
 from askiisc.web.app import Me, WebDeps, error, is_real, run
-from askiisc.web.store import StoredMessage
+from askiisc.web.store import Chat, StoredMessage
 
 TITLE_CHARS = 60
 REVOKED_TEXT = (
     "This answer cited a document you can no longer read, so it is hidden."
 )
 UNAVAILABLE = "the access service is unavailable; try again shortly"
+BUSY = "an answer is still being written in this chat; wait for it to finish"
+HTTP_CONFLICT = 409
 
 
 class NewChat(BaseModel):
@@ -214,10 +222,49 @@ def enrich(web: WebDeps, payload: dict[str, Any]) -> dict[str, Any]:
 OnAnswer = Callable[[dict[str, Any]], Awaitable[dict[str, Any] | None]]
 
 
+class ChatGuard:
+    """Lets each chat write one answer at a time (issue #9).
+
+    Without it, two tabs (or a retry) sending to one chat stored their
+    questions and answers interleaved, and two regenerates duplicated the
+    turn. The server runs one event loop, so a set is enough.
+    """
+
+    def __init__(self) -> None:
+        self._busy: set[tuple[str, str]] = set()
+
+    async def run(
+        self,
+        user_id: str,
+        chat_id: str,
+        work: Callable[[], Awaitable[Response]],
+    ) -> Response:
+        """Runs `work` alone in its chat, or answers 409.
+
+        A streamed answer keeps the chat until its stream ends.
+        """
+        key = (user_id, chat_id)
+        if key in self._busy:
+            return error(HTTP_CONFLICT, BUSY)
+        self._busy.add(key)
+        try:
+            response = await work()
+        except BaseException:
+            self._busy.discard(key)
+            raise
+        if isinstance(response, ManagedStream):
+            response.add_close_hook(lambda: self._busy.discard(key))
+        else:
+            self._busy.discard(key)
+        return response
+
+
 def relay(web: WebDeps, response: Response, on_answer: OnAnswer) -> Response:
     """Passes a gateway stream through, enriching and saving the answer.
 
-    A rejection (401, 403, 413, 429) is returned unchanged.
+    A rejection (401, 403, 413, 429) is returned unchanged. Closing the
+    relayed stream closes the gateway's, so its ticket is freed and the
+    request audited however the client leaves.
     """
     if not isinstance(response, StreamingResponse):
         return response
@@ -245,8 +292,14 @@ def relay(web: WebDeps, response: Response, on_answer: OnAnswer) -> Response:
         if REQUEST_ID_HEADER in response.headers
         else None
     )
-    return StreamingResponse(
-        events(), media_type="text/event-stream", headers=headers
+    hooks: tuple[CloseHook, ...] = (
+        (response.aclose,) if isinstance(response, ManagedStream) else ()
+    )
+    return ManagedStream(
+        events(),
+        media_type="text/event-stream",
+        headers=headers,
+        on_close=hooks,
     )
 
 
@@ -256,6 +309,7 @@ def chat_router(  # noqa: PLR0915 - one route table
     """The /api/chats, /api/temporary and /api/messages routes."""
     router = APIRouter(prefix="/api")
     user_dep = Depends(current)
+    guard = ChatGuard()
 
     async def readable(me: Me) -> frozenset[str]:
         allowed = await web.gateway.access.filter(me.token)
@@ -347,30 +401,18 @@ def chat_router(  # noqa: PLR0915 - one route table
     async def send(
         chat_id: str, body: Question, request: Request, me: Me = user_dep
     ) -> Response:
-        return await _send(
-            web, me, chat_id, body.question, shown, claim=claim_of(request)
+        return await guard.run(
+            me.user_id,
+            chat_id,
+            lambda: _send(
+                web, me, chat_id, body.question, shown, claim=claim_of(request)
+            ),
         )
 
     @router.post("/chats/{chat_id}/regenerate")
     async def regenerate(chat_id: str, me: Me = user_dep) -> Response:
-        try:
-            await run(web.store.chat, me.user_id, chat_id)
-        except NotFound:
-            return error(404, "no such chat")
-        messages = await run(web.store.messages, chat_id)
-        if len(messages) < 2 or [m.role for m in messages[-2:]] != [  # noqa: PLR2004
-            "user",
-            "assistant",
-        ]:
-            return error(400, "nothing to regenerate")
-        question, answer = messages[-2], messages[-1]
-        return await _send(
-            web,
-            me,
-            chat_id,
-            question.content,
-            shown,
-            replaces=(question.message_id, answer.message_id),
+        return await guard.run(
+            me.user_id, chat_id, lambda: _regenerate(web, me, chat_id, shown)
         )
 
     @router.post("/temporary")
@@ -458,35 +500,98 @@ async def _send(
     response = await ask(
         web.gateway, request, f"Bearer {me.token}", origin, claim
     )
-    if not isinstance(response, StreamingResponse):
+    if not isinstance(response, ManagedStream):
         return response
+    try:
+        question_id = await _accept(web, me, chat, question, history, replaces)
+    except NotFound:  # the chat was deleted meanwhile, in another tab
+        await response.aclose()
+        return error(404, "no such chat")
+    except BaseException:
+        await response.aclose()  # frees the admission ticket (FR-6)
+        raise
+    web.m.chat_events.labels("message").inc()
+    return relay(web, response, _saver(web, me, chat_id, question_id))
+
+
+async def _regenerate(
+    web: WebDeps,
+    me: Me,
+    chat_id: str,
+    shown: Callable[[Me, str], Awaitable[list[dict[str, Any]]]],
+) -> Response:
+    """Asks a chat's last question again, replacing its last answer."""
+    try:
+        await run(web.store.chat, me.user_id, chat_id)
+    except NotFound:
+        return error(404, "no such chat")
+    messages = await run(web.store.messages, chat_id)
+    if len(messages) < 2 or [m.role for m in messages[-2:]] != [  # noqa: PLR2004
+        "user",
+        "assistant",
+    ]:
+        return error(400, "nothing to regenerate")
+    question, answer = messages[-2], messages[-1]
+    return await _send(
+        web,
+        me,
+        chat_id,
+        question.content,
+        shown,
+        replaces=(question.message_id, answer.message_id),
+    )
+
+
+async def _accept(
+    web: WebDeps,
+    me: Me,
+    chat: Chat,
+    question: str,
+    history: list[Turn],
+    replaces: tuple[str, str] | None,
+) -> str:
+    """Stores the question once the gateway has accepted the request.
+
+    Returns:
+        The question's message id.
+
+    Raises:
+        NotFound: If the chat no longer exists.
+    """
     store, now = web.store, web.clock.now()
     for message_id in replaces or ():
-        await run(store.delete_message, chat_id, message_id)
+        await run(store.delete_message, chat.chat_id, message_id)
     question_id = await run(
-        store.add_message, chat_id, "user", question, {}, now
+        store.add_message, chat.chat_id, "user", question, {}, now
     )
     if not history and chat.title == "New chat":
         await run(
-            store.rename_chat, me.user_id, chat_id, question[:TITLE_CHARS]
+            store.rename_chat, me.user_id, chat.chat_id, question[:TITLE_CHARS]
         )
-    web.m.chat_events.labels("message").inc()
+    return question_id
 
-    async def save(payload: dict[str, Any]) -> dict[str, Any]:
+
+def _saver(web: WebDeps, me: Me, chat_id: str, question_id: str) -> OnAnswer:
+    """Saves a streamed answer; nothing if the chat was deleted meanwhile."""
+
+    async def save(payload: dict[str, Any]) -> dict[str, Any] | None:
         meta = {k: v for k, v in payload.items() if k != "text"}
-        answer_id = await run(
-            store.add_message,
-            chat_id,
-            "assistant",
-            payload["text"],
-            meta,
-            web.clock.now(),
-        )
-        title = (await run(store.chat, me.user_id, chat_id)).title
+        try:
+            answer_id = await run(
+                web.store.add_message,
+                chat_id,
+                "assistant",
+                payload["text"],
+                meta,
+                web.clock.now(),
+            )
+            title = (await run(web.store.chat, me.user_id, chat_id)).title
+        except NotFound:  # deleted while it was answered (issue #10)
+            return None
         return {
             "question_id": question_id,
             "answer_id": answer_id,
             "title": title,
         }
 
-    return relay(web, response, save)
+    return save

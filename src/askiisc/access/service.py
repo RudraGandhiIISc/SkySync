@@ -8,6 +8,7 @@ admin of the document's owning department, or an institute admin.
 from __future__ import annotations
 
 import logging
+import math
 import time
 from collections.abc import Callable
 from typing import Literal
@@ -105,6 +106,20 @@ class AccessMetrics:
         )
 
 
+def decision_time(clock: Clock, at: float | None) -> float:
+    """The time a decision is made for: now, or the caller's finite time.
+
+    Raises:
+        HTTPException: 422 for NaN or an infinite time (NaN would pass the
+            start of a validity window).
+    """
+    if at is None:
+        return clock.now()
+    if not math.isfinite(at):
+        raise HTTPException(status_code=422, detail="at must be a finite time")
+    return at
+
+
 PolicyListener = Callable[[str, DocPolicy | DocId], None]
 """Called after a change: ("put", policy) or ("delete", doc_id)."""
 
@@ -164,7 +179,7 @@ def create_app(  # noqa: PLR0915 - one route table, read top to bottom
         user: UserId = Depends(caller),  # noqa: B008
     ) -> dict[str, object]:
         started = time.perf_counter()
-        at = clock.now() if body.at is None else body.at
+        at = decision_time(clock, body.at)
         decision = engine.authorize(user, body.doc_id, at)
         elapsed = time.perf_counter() - started
         metrics.seconds.labels("authorize").observe(elapsed)
@@ -181,7 +196,7 @@ def create_app(  # noqa: PLR0915 - one route table, read top to bottom
         user: UserId = Depends(caller),  # noqa: B008
     ) -> dict[str, object]:
         started = time.perf_counter()
-        at = clock.now() if body.at is None else body.at
+        at = decision_time(clock, body.at)
         if body.compact:
             compact = engine.filter_compact(user, at)
             reply: dict[str, object] = {
@@ -216,13 +231,22 @@ def create_app(  # noqa: PLR0915 - one route table, read top to bottom
     ) -> dict[str, object]:
         existing = policies.snapshot()[1].get(doc_id)
         if existing is None:
+            # A deleted policy's owners still own the id (issue #13): to
+            # anyone else it is taken, as with a live policy.
+            former = policies.former_owners(doc_id)
+            if former is not None:
+                require(may_manage_policy(directory.get(user), former))
             raise HTTPException(status_code=404, detail="unknown document")
         require(may_manage_policy(directory.get(user), existing.owners))
         return existing.model_dump(mode="json")
 
     def current_owners(doc_id: DocId) -> frozenset[str] | None:
+        # A deleted policy's owners still count: re-creating it is a change
+        # of owners like any other (issue #13). None: a new document.
         existing = policies.snapshot()[1].get(doc_id)
-        return None if existing is None else existing.owners
+        if existing is not None:
+            return existing.owners
+        return policies.former_owners(doc_id)
 
     @app.put("/v1/policy/{doc_id}")
     async def put_policy(

@@ -145,12 +145,18 @@ class PolicyStore:
 
     Copy-on-write: a change builds a new mapping, so a snapshot is O(1)
     (the real corpus has ~25k policies and every request takes a snapshot).
+
+    A deleted policy leaves its owners behind: they still decide who may
+    create the document's policy again, so a co-owner cannot delete a
+    shared document's policy and re-create it as its only owner (issue
+    #13). A change log that replays every delete restores them.
     """
 
     def __init__(self, policies: list[DocPolicy] | None = None) -> None:
         self._policies: dict[DocId, DocPolicy] = {
             p.doc_id: p for p in policies or []
         }
+        self._former: dict[DocId, frozenset[str]] = {}
         self._version = 1
         self._lock = threading.Lock()
 
@@ -164,17 +170,29 @@ class PolicyStore:
         """Adds or replaces a document's policy; returns the new version."""
         with self._lock:
             self._policies = {**self._policies, policy.doc_id: policy}
+            self._former.pop(policy.doc_id, None)
             self._version += 1
             return self._version
 
     def delete(self, doc_id: DocId) -> int:
-        """Removes a policy (revokes all access); returns the new version."""
+        """Removes a policy (revokes all access); returns the new version.
+
+        The policy's owners are kept (`former_owners`).
+        """
         with self._lock:
+            old = self._policies.get(doc_id)
+            if old is not None:
+                self._former[doc_id] = old.owners
             self._policies = {
                 d: p for d, p in self._policies.items() if d != doc_id
             }
             self._version += 1
             return self._version
+
+    def former_owners(self, doc_id: DocId) -> frozenset[str] | None:
+        """The owners of a document whose policy was deleted, if any."""
+        with self._lock:
+            return self._former.get(doc_id)
 
     def snapshot(self) -> tuple[int, Mapping[DocId, DocPolicy]]:
         """Returns the version and a read-only view of every policy."""

@@ -37,7 +37,10 @@ credential at once.
 ## Known advisories in the GPU-side packages
 
 `make audit` checks the project's own lock file and reports no known
-vulnerability (soupsieve moved to 4.1 on 2026-11-13 for CVE-2026-126190). The GPU-side environment (`slurm/serve-requirements.txt`)
+vulnerability (soupsieve moved to 4.1 on 2026-11-13 for CVE-2026-126190;
+opentelemetry-api and -sdk moved to 1.45.2 on 2026-11-19 for
+CVE-2026-126360, issue #16: Ask IISc never extracts trace context, so the
+vulnerable propagator was not reachable). The GPU-side environment (`slurm/serve-requirements.txt`)
 is separate. On 2026-11-12, pip-audit listed advisories for vLLM 0.11.0
 (93), torch 2.8.0 (9), transformers 4.57.6 (9), setuptools (3), xgrammar
 (2), diskcache (2) and sentence-transformers 5.1.1 (1). The embedding

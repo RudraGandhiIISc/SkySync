@@ -5,23 +5,32 @@ cold-start hold -> fair queue -> LLM stream -> output filter -> audit.
 
 Events: `warming` (a GPU worker is starting), `token` (answer text),
 `answer` (final text and citations; replaces the streamed text),
-`error`. Rejections before streaming use HTTP 401, 403, 413 and 429.
+`error`. Rejections before streaming use HTTP 401, 403, 413, 422 and 429.
 Every response carries `X-Request-Id`, the id of its audit record (FR-12).
+
+Access is always decided at the time of the request. `as_of` only chooses
+which document versions are searched, and is never later than now: a
+client-chosen time must not open a document before its policy window or
+reopen it after (FR-2, NFR-10; issues #6 and #12).
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import time
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
-from fastapi import FastAPI, Header, Response
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import FastAPI, Header, Request, Response
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.exceptions import HTTPException
 
 from askiisc.access.client import AccessAPI
 from askiisc.access.policy import AccessFilter
@@ -62,12 +71,20 @@ from askiisc.gateway.cache import (
 from askiisc.gateway.drr import FairDispatcher
 from askiisc.gateway.limits import Admission, Ticket
 from askiisc.gateway.output_filter import filter_answer
+from askiisc.gateway.streams import ManagedStream
 from askiisc.llm.rag import Prepared, RagAnswerer
 from askiisc.observability.metrics import GatewayMetrics
 from askiisc.observability.stages import StageTimer
+from askiisc.observability.timing import ask_kind
 
 REQUEST_ID_HEADER = "X-Request-Id"
 HTTP_UNAVAILABLE = 503
+HTTP_BAD_REQUEST = 400
+HTTP_INVALID = 422
+HTTP_CLIENT_CLOSED = 499
+"""Request-log status of a request whose client left before its answer."""
+CALLER_KEY = "askiisc.caller"
+"""Scope state: the (Caller, Origin) the session named, set by the web app."""
 GPUS_FULL_MESSAGE = (
     "All GPUs on the shared server are in use by other jobs, so no model "
     "worker can start. Please try again in a few minutes."
@@ -210,7 +227,7 @@ class AskRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     question: str = Field(min_length=1, max_length=8192)
-    as_of: float | None = None
+    as_of: float | None = Field(default=None, allow_inf_nan=False)
     history: list[Turn] = Field(
         default_factory=list, max_length=HISTORY_MAX_TURNS
     )
@@ -331,7 +348,98 @@ def create_app(deps: GatewayDeps) -> FastAPI:
     ) -> Response:
         return await _ask(deps, body, authorization, Origin())
 
+    @app.exception_handler(RequestValidationError)
+    async def invalid(
+        request: Request, exc: RequestValidationError
+    ) -> Response:
+        response = invalid_response(exc)
+        return audit_refused(deps, request, response, _question(exc.body))
+
+    @app.exception_handler(HTTPException)
+    async def http_error(request: Request, exc: HTTPException) -> Response:
+        response = await http_exception_handler(request, exc)
+        if exc.status_code != HTTP_BAD_REQUEST:  # a body it cannot parse
+            return response
+        return audit_refused(deps, request, response, "")
+
     return app
+
+
+def audit_refused(
+    deps: GatewayDeps, request: Request, response: Response, question: str
+) -> Response:
+    """Audits a question FastAPI refused before its route ran (FR-12).
+
+    FastAPI refuses a body it cannot parse (400) or validate (422: an
+    over-long or empty question, an unknown field, bad JSON) before the
+    route runs, so such refusals left no audit record (issue #14). Other
+    routes' responses pass through unchanged.
+
+    Args:
+        deps: The gateway's dependencies.
+        request: The refused request.
+        response: The refusal.
+        question: The question, if the body had one (only its salted
+            hash is stored).
+
+    Returns:
+        The refusal, with X-Request-Id on question routes.
+    """
+    kind = ask_kind(request.url.path)
+    if kind is None or request.method != "POST":
+        return response
+    caller, origin = _caller_of(deps, request, kind)
+    arrival = _arrive(deps)
+    body = AskRequest.model_construct(question=question, as_of=None, history=[])
+    session = _Session(deps, caller, body, None, None, arrival, origin)
+    session.audit("rejected", response.status_code, "invalid_request")
+    response.headers[REQUEST_ID_HEADER] = session.request_id
+    return response
+
+
+def invalid_response(exc: RequestValidationError) -> Response:
+    """FastAPI's 422 body without the rejected values, in plain ASCII.
+
+    The default echoes every bad value back: a NaN or infinite number then
+    broke the 422 itself (a 500), and a 9,000-character question came
+    straight back to the client. ASCII escapes keep a lone surrogate in a
+    field name from breaking the encoding.
+    """
+    detail = [
+        {
+            "type": e.get("type"),
+            "loc": list(e.get("loc", ())),
+            "msg": e.get("msg"),
+        }
+        for e in exc.errors()
+    ]
+    return Response(
+        json.dumps({"detail": detail}, ensure_ascii=True),
+        status_code=HTTP_INVALID,
+        media_type="application/json",
+    )
+
+
+def _caller_of(
+    deps: GatewayDeps, request: Request, kind: str
+) -> tuple[Caller, Origin]:
+    """Who sent a refused question: the web session, or the API token."""
+    named = request.scope.get("state", {}).get(CALLER_KEY)
+    if named is not None:
+        return named  # type: ignore[no-any-return]
+    if kind == "api":
+        header = request.headers.get("authorization")
+        try:
+            return deps.auth.authenticate(header), Origin()
+        except (AuthError, AccessDenied):
+            return ANONYMOUS, Origin()
+    return ANONYMOUS, Origin(kind)
+
+
+def _question(body: Any) -> str:
+    """The question field of a parsed body ("" if there is none)."""
+    question = body.get("question") if isinstance(body, dict) else None
+    return question if isinstance(question, str) else ""
 
 
 async def ask(
@@ -409,6 +517,9 @@ async def _ask(
     claim: Claim | None = None,
 ) -> Response:
     arrival = _arrive(deps) if claim is None else claim.arrival
+    if body.as_of is not None:  # never a time after now (issue #6)
+        now = deps.clock.now()
+        body = body.model_copy(update={"as_of": min(body.as_of, now)})
 
     def reject(
         caller: Caller, decision: Decision, status: int, why: RefusalReason
@@ -439,7 +550,8 @@ async def _ask(
         ticket = claim.ticket
     try:
         with arrival.timer.measure("access"):
-            allowed = await deps.access.filter(caller.token, body.as_of)
+            # Who may read what is decided now, whatever `as_of` says.
+            allowed = await deps.access.filter(caller.token)
     except AccessDenied as err:
         if claim is None:  # a claim is released by its middleware
             deps.admission.release(ticket, completed=False)
@@ -449,10 +561,13 @@ async def _ask(
     session.handed_off = arrival.timer.now()
     if claim is not None:
         claim.used = True  # the stream releases the ticket
-    return StreamingResponse(
+    # The stream frees the ticket and writes the audit record however it
+    # ends, even if it never starts (FR-6, FR-12).
+    return ManagedStream(
         session.events(),
         media_type="text/event-stream",
         headers={REQUEST_ID_HEADER: session.request_id},
+        on_close=(session.abandon,),
     )
 
 
@@ -497,6 +612,9 @@ class _Session:
         self._cached: CachedAnswer | None = None
         # The answer cache's generation when retrieval started (FR-5).
         self._generation: int | None = None
+        # When the answer's stale flags were set (FR-5).
+        self._flagged_at: float | None = None
+        self._closed = False
 
     @property
     def key(self) -> str | None:
@@ -541,13 +659,38 @@ class _Session:
             )
         except AskIIScError as err:
             yield sse("error", {"error": type(err).__name__})
+        except (asyncio.CancelledError, GeneratorExit):
+            self.status, self.reason = HTTP_CLIENT_CLOSED, "client_closed"
+            raise
         finally:
-            if self.ticket is not None:
-                self.deps.admission.release(
-                    self.ticket, completed=decision != "error"
-                )
-            self._finish_metrics(decision)
-            self.audit(decision, self.status)
+            self.close(decision)
+
+    def close(self, decision: Decision = "error") -> None:
+        """Frees the admission ticket and writes the audit record, once.
+
+        Args:
+            decision: The request's outcome.
+        """
+        if self._closed:
+            return
+        self._closed = True
+        if self.ticket is not None:
+            self.deps.admission.release(
+                self.ticket, completed=decision != "error"
+            )
+        self._finish_metrics(decision)
+        self.audit(decision, self.status)
+
+    def abandon(self) -> None:
+        """Closes a stream that ends without running to completion.
+
+        Its generator may never have started (the client left first, or
+        the route failed after building it), and then its `finally` never
+        runs: this frees the ticket and audits the request instead.
+        """
+        if not self._closed:
+            self.status, self.reason = HTTP_CLIENT_CLOSED, "client_closed"
+            self.close()
 
     async def _run(self) -> AsyncIterator[bytes]:
         if await self._from_cache():
@@ -569,6 +712,7 @@ class _Session:
             async for event in self._generate():
                 yield event
         with self.timer.measure("finish"):
+            self._flagged_at = self.deps.clock.now()
             answer = rag.finish(self.prepared)
         with self.timer.measure("filter"):
             result = await filter_answer(
@@ -591,7 +735,7 @@ class _Session:
     async def _from_cache(self) -> bool:
         key = self.key
         cached = None if key is None else await self.deps.cache.get(key)
-        if cached is None:
+        if cached is None or self._ended(cached):
             return False
         self.answer, self.cache_hit = cached.answer, True
         self._cached = cached
@@ -608,13 +752,33 @@ class _Session:
         key = self.key
         if key is None or self.answer is None or self.prepared is None:
             return
-        docs = tuple(
-            sorted({(c.doc_id, int(c.version)) for c in self.prepared.chunks})
-        )
-        ids = tuple(c.id for c in self.prepared.chunks)
+        chunks = self.prepared.chunks
+        docs = tuple(sorted({(c.doc_id, int(c.version)) for c in chunks}))
+        # An edition's end is set in advance and moves no generation, so
+        # the entry carries the earliest end of the versions it used and is
+        # not served from then on (FR-5, issue #8). Ends from the moment
+        # the stale flags were set count: one that passed while the answer
+        # was being checked would otherwise slip through unflagged.
+        since = self._flagged_at
+        if since is None:  # pragma: no cover - finish always comes first
+            since = self.deps.clock.now()
+        ends = [
+            e for c in chunks if (e := c.valid_to) is not None and e > since
+        ]
         await self.deps.cache.set(
-            key, CachedAnswer(answer=self.answer, documents=docs, chunk_ids=ids)
+            key,
+            CachedAnswer(
+                answer=self.answer,
+                documents=docs,
+                chunk_ids=tuple(c.id for c in chunks),
+                valid_until=min(ends, default=None),
+            ),
         )
+
+    def _ended(self, cached: CachedAnswer) -> bool:
+        """Whether a version a cached answer used has ended since (FR-5)."""
+        end = cached.valid_until
+        return end is not None and self.deps.clock.now() >= end
 
     async def _hold_for_worker(self) -> AsyncIterator[bytes]:
         workers = self.deps.workers

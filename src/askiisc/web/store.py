@@ -15,12 +15,16 @@ only ever adding:
 
 `password_resets` holds the single-use links that set a password (an
 admin's invitation or a password reset), stored as SHA-256 hashes.
+Device tokens (a browser someone has signed in from) are Fernet tokens
+under a key derived from the server key; nothing about them is stored.
 """
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import hashlib
+import hmac
 import json
 import secrets
 import sqlite3
@@ -39,6 +43,11 @@ Status = Literal["pending", "active", "disabled"]
 Access = Literal["active", "revoked"]
 MAX_FAILED_LOGINS = 5
 LOCKOUT_S = 15 * 60.0
+DEVICE_TTL_S = 90 * 24 * 3600.0
+"""How long a browser stays known after a sign-in (web/throttle.py)."""
+_ORPHANS = (
+    "DELETE FROM messages WHERE chat_id NOT IN (SELECT chat_id FROM chats)"
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts (
@@ -167,6 +176,12 @@ def _hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def _derive(key: bytes, purpose: bytes) -> bytes:
+    """A Fernet key for one purpose, derived from the store's key."""
+    digest = hmac.new(key, purpose, hashlib.sha256).digest()
+    return base64.urlsafe_b64encode(digest)
+
+
 def load_key(path: Path) -> bytes:
     """Reads the encryption key, creating it (mode 600) on first use."""
     if not path.exists():
@@ -196,10 +211,12 @@ class AppStore:
                 "the chat encryption key is not a valid Fernet key; restore "
                 "chat.key from its backup (a new key cannot read old chats)"
             ) from err
+        self._device = Fernet(_derive(key, b"askiisc device cookie v1"))
         self._lock = threading.Lock()
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
         self._migrate()
+        self._write(_ORPHANS, ())  # messages rt-baseline left (issue #10)
 
     def _migrate(self) -> None:
         """Brings an older file up to SCHEMA_VERSION; never drops data."""
@@ -223,6 +240,21 @@ class AppStore:
                 )
             if version < SCHEMA_VERSION:  # a newer release's file keeps its
                 self._db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+    def device_token(self, user_id: str, now: float) -> str:
+        """A token marking a browser that `user_id` signed in from."""
+        sealed = self._device.encrypt_at_time(user_id.encode(), int(now))
+        return sealed.decode()
+
+    def device_user(self, token: str, now: float) -> str | None:
+        """Who a device token was issued to, if it is genuine and recent."""
+        try:
+            plain = self._device.decrypt_at_time(
+                token.encode(), int(DEVICE_TTL_S), int(now)
+            )
+        except InvalidToken:
+            return None
+        return plain.decode()
 
     def schema_version(self) -> int:
         """The file's schema version."""
@@ -648,16 +680,23 @@ class AppStore:
             self._db.execute("DELETE FROM chats WHERE chat_id = ?", (chat_id,))
 
     def delete_all_chats(self, user_id: str) -> int:
-        """Deletes every chat of a user; returns how many."""
+        """Deletes every chat of a user; returns how many.
+
+        Messages left without a chat (only rt-baseline could leave them,
+        issue #10) go too: nobody can reach them, and they may be this
+        user's.
+        """
         with self._lock, self._db:
             self._db.execute(
                 "DELETE FROM messages WHERE chat_id IN "
                 "(SELECT chat_id FROM chats WHERE user_id = ?)",
                 (user_id,),
             )
-            return self._db.execute(
+            count = self._db.execute(
                 "DELETE FROM chats WHERE user_id = ?", (user_id,)
             ).rowcount
+            self._db.execute(_ORPHANS)
+            return count
 
     # -- messages --------------------------------------------------------
 
@@ -669,21 +708,28 @@ class AppStore:
         meta: dict[str, Any],
         now: float,
     ) -> str:
-        """Appends a message; returns its id."""
+        """Appends a message to a chat that still exists; returns its id.
+
+        The check and the insert are one transaction, so a chat deleted
+        while it was being answered never keeps a message (issue #10).
+
+        Raises:
+            NotFound: If the chat does not exist (any more).
+        """
         message_id = uuid.uuid4().hex
-        self._write(
-            "INSERT INTO messages (message_id, chat_id, role, content, meta, "
-            "created) VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                message_id,
-                chat_id,
-                role,
-                self._seal(content),
-                json.dumps(meta),
-                now,
-            ),
-        )
-        self.touch_chat(chat_id, now)
+        row = (message_id, chat_id, role, self._seal(content), json.dumps(meta))
+        with self._lock, self._db:
+            added = self._db.execute(
+                "INSERT INTO messages (message_id, chat_id, role, content, "
+                "meta, created) SELECT ?, ?, ?, ?, ?, ? WHERE EXISTS "
+                "(SELECT 1 FROM chats WHERE chat_id = ?)",
+                (*row, now, chat_id),
+            ).rowcount
+            if not added:
+                raise NotFound(chat_id)
+            self._db.execute(
+                "UPDATE chats SET updated = ? WHERE chat_id = ?", (now, chat_id)
+            )
         return message_id
 
     def messages(self, chat_id: str) -> list[StoredMessage]:

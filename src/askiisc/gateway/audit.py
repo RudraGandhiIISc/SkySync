@@ -24,8 +24,15 @@ RefusalReason = Literal[
     "access_check_timeout",
     "access_check_failed",
     "gpus_full",
+    "invalid_request",
+    "client_closed",
 ]
-"""Why a request was refused before an answer (fixed codes, never text)."""
+"""Why a request got no answer (fixed codes, never text).
+
+`invalid_request`: the body could not be parsed or failed validation (HTTP
+400 or 422). `client_closed`: the client went away before its answer was
+sent.
+"""
 
 
 def salted_hash(salt: str, value: str) -> str:
@@ -40,7 +47,10 @@ def salted_hash(salt: str, value: str) -> str:
     """
     if not salt:
         raise ValueError("an audit salt is required")
-    return hmac.new(salt.encode(), value.encode(), hashlib.sha256).hexdigest()
+    # surrogatepass: a lone surrogate in a question must not stop its
+    # record being written (issue #14).
+    data = value.encode("utf-8", "surrogatepass")
+    return hmac.new(salt.encode(), data, hashlib.sha256).hexdigest()
 
 
 class DocVersion(BaseModel):

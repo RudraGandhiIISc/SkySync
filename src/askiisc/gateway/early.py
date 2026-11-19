@@ -8,6 +8,11 @@ check (an HTTP call) is made and a gateway token is signed and verified.
 and so the tenant: one store lookup. A refused request gets its audited
 429 at once; an admitted one carries its claim to the route, which still
 makes every check (a failed check refuses it as before, fail closed).
+A claim the route never used (a malformed body, a missing chat, a failed
+check) gives its token back: the request never reached the model, so it
+must not use up the department's rate (issue #14). The session's caller
+is also left on the request, so a 422 from validation is audited under
+the right user and department.
 """
 
 from __future__ import annotations
@@ -19,7 +24,13 @@ from typing import Any
 from fastapi import Request
 from starlette.responses import Response
 
-from askiisc.gateway.app import Claim, GatewayDeps, Origin, admit_early
+from askiisc.gateway.app import (
+    CALLER_KEY,
+    Claim,
+    GatewayDeps,
+    Origin,
+    admit_early,
+)
 from askiisc.gateway.auth import Caller
 from askiisc.observability.timing import ask_kind
 
@@ -109,6 +120,8 @@ class EarlyAdmission:
             return
         who = await self._identify(scope)
         body, replay = await read_body(receive)
+        if who is not None:
+            scope.setdefault("state", {})[CALLER_KEY] = who
         if who is None or body is None:
             await self._app(scope, replay, send)
             return
@@ -122,7 +135,9 @@ class EarlyAdmission:
             await self._app(scope, replay, send)
         finally:
             if not outcome.used:
-                self._deps.admission.release(outcome.ticket, completed=False)
+                self._deps.admission.release(
+                    outcome.ticket, completed=False, refund=True
+                )
 
 
 def _is_question(scope: Any) -> bool:

@@ -26,6 +26,7 @@ SameSite=Strict cookies this stops CSRF.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -60,11 +61,14 @@ from askiisc.web.passwords import (
 from askiisc.web.pending import PendingRegistrations
 from askiisc.web.people import PeopleTree
 from askiisc.web.requestlog import RequestLog
-from askiisc.web.store import Account, AppStore
+from askiisc.web.store import DEVICE_TTL_S, Account, AppStore
 from askiisc.web.throttle import LoginThrottle
 
 STATIC = Path(__file__).parent / "static"
 COOKIE = "askiisc_session"
+DEVICE_COOKIE = "askiisc_device"
+"""Marks a browser that signed in to an account (web/throttle.py)."""
+DEVICE_PATH = "/api/auth"
 CSRF_HEADER = "x-askiisc"
 # The pages load nothing from other origins and have no inline scripts, so
 # the policy allows only this origin (inline style attributes excepted).
@@ -496,7 +500,10 @@ def auth_router(
 
     @router.post("/auth/login", dependencies=[Depends(csrf)])
     async def login(body: Credentials, request: Request) -> Response:
-        return await _login(web, body, request.cookies.get(COOKIE))
+        cookies = request.cookies
+        return await _login(
+            web, body, cookies.get(COOKIE), cookies.get(DEVICE_COOKIE)
+        )
 
     @router.post("/auth/logout", dependencies=[Depends(csrf)])
     async def logout(request: Request) -> Response:
@@ -549,18 +556,46 @@ def auth_router(
         await run(web.store.delete_account, user.user_id)
         response = JSONResponse({"deleted": True})
         response.delete_cookie(COOKIE, path="/")
+        response.delete_cookie(DEVICE_COOKIE, path=DEVICE_PATH)
         return response
 
     return router
 
 
-async def _login(web: WebDeps, body: Credentials, old: str | None) -> Response:
-    """Password sign-in. Every refusal looks and takes the same."""
+def _set_device(web: WebDeps, response: Response, user_id: str) -> None:
+    """Marks this browser as one `user_id` signed in from (issue #11)."""
+    response.set_cookie(
+        DEVICE_COOKIE,
+        web.store.device_token(user_id, web.clock.now()),
+        max_age=int(DEVICE_TTL_S),
+        httponly=True,
+        samesite="strict",
+        secure=web.secure_cookies,
+        path=DEVICE_PATH,
+    )
+
+
+def _device_id(web: WebDeps, cookie: str | None, key: str) -> str | None:
+    """An id for the device cookie, if it was issued for this account."""
+    if cookie is None or web.store.device_user(cookie, web.clock.now()) != key:
+        return None
+    return hashlib.sha256(cookie.encode()).hexdigest()[:32]
+
+
+async def _login(
+    web: WebDeps, body: Credentials, old: str | None, device: str | None
+) -> Response:
+    """Password sign-in. Every refusal looks and takes the same.
+
+    A browser that signed in to this account before (its device cookie)
+    is judged only by its own failures (web/throttle.py).
+    """
     throttle = web.throttle
     if throttle is None:  # pragma: no cover - set in __post_init__
         raise ConfigError("no sign-in throttle")
     key = normalise(body.user_id)
-    wait = throttle.wait_s(key)
+    device_id = _device_id(web, device, key)
+    wait = throttle.wait_s(key, device_id)
     if wait > 0:
         web.m.logins.labels("throttled").inc()
         return JSONResponse(
@@ -588,10 +623,10 @@ async def _login(web: WebDeps, body: Credentials, old: str | None) -> Response:
         and await run(may_sign_in, web, user_id)
     )
     if not allowed:
-        throttle.failed(key)
+        throttle.failed(key, device_id)
         web.m.logins.labels("refused").inc()
         return error(401, SIGN_IN_FAILED)
-    throttle.succeeded(key)
+    throttle.succeeded(key, device_id)
     if needs_rehash(stored):
         rehashed = await run(hash_password, body.password)
         await run(web.store.replace_hash, user_id, rehashed)
@@ -603,4 +638,5 @@ async def _login(web: WebDeps, body: Credentials, old: str | None) -> Response:
     web.m.logins.labels("ok").inc()
     response = JSONResponse({"user_id": user_id})
     _set_cookie(web, response, token)
+    _set_device(web, response, normalise(user_id))
     return response

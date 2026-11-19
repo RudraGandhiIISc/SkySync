@@ -71,6 +71,11 @@ class TokenBucket:
         self._refill()
         return max(0.0, (cost - self._tokens) / self._rate)
 
+    def refund(self, cost: float = 1.0) -> None:
+        """Gives back tokens a refused request took (never above burst)."""
+        self._refill()
+        self._tokens = min(self._burst, self._tokens + cost)
+
 
 @dataclass(frozen=True)
 class Ticket:
@@ -207,15 +212,21 @@ class Admission:
         self._depth[tenant] += 1
         return Ticket(tenant, self._clock.now())
 
-    def release(self, ticket: Ticket, completed: bool = True) -> None:
+    def release(
+        self, ticket: Ticket, completed: bool = True, refund: bool = False
+    ) -> None:
         """Returns a ticket and updates the service-time estimate.
 
         Args:
             ticket: The admission ticket.
             completed: Whether the request was served (only served requests
                 update the estimate).
+            refund: Whether to give back the tenant's token as well: the
+                request was refused before it reached the model (FR-6).
         """
         self._depth[ticket.tenant] = max(0, self._depth[ticket.tenant] - 1)
+        if refund and self._enabled:
+            self._bucket(ticket.tenant).refund()
         if completed:
             took = self._clock.now() - ticket.admitted_at
             self._service_s += _EWMA_WEIGHT * (took - self._service_s)

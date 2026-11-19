@@ -277,7 +277,11 @@ def _policy_routes(
     async def put_policy(
         doc_id: str, request: Request, me: Me = user_dep
     ) -> Response:
-        body = await request.json()
+        me.scope()  # admins only, before the body is read (issue #15)
+        try:
+            body = await request.json()
+        except ValueError as err:  # not JSON (JSONDecodeError, bad UTF-8)
+            return error(422, f"invalid policy: {err}")
         if isinstance(body, dict):  # malformed bodies: the service says
             co = body.get("co_owners")
             owners = [body.get("owner", INSTITUTE)]
