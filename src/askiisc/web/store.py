@@ -39,6 +39,9 @@ Status = Literal["pending", "active", "disabled"]
 Access = Literal["active", "revoked"]
 MAX_FAILED_LOGINS = 5
 LOCKOUT_S = 15 * 60.0
+_ORPHANS = (
+    "DELETE FROM messages WHERE chat_id NOT IN (SELECT chat_id FROM chats)"
+)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts (
@@ -200,6 +203,7 @@ class AppStore:
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
         self._migrate()
+        self._write(_ORPHANS, ())  # messages rt-baseline left (issue #10)
 
     def _migrate(self) -> None:
         """Brings an older file up to SCHEMA_VERSION; never drops data."""
@@ -648,16 +652,23 @@ class AppStore:
             self._db.execute("DELETE FROM chats WHERE chat_id = ?", (chat_id,))
 
     def delete_all_chats(self, user_id: str) -> int:
-        """Deletes every chat of a user; returns how many."""
+        """Deletes every chat of a user; returns how many.
+
+        Messages left without a chat (only rt-baseline could leave them,
+        issue #10) go too: nobody can reach them, and they may be this
+        user's.
+        """
         with self._lock, self._db:
             self._db.execute(
                 "DELETE FROM messages WHERE chat_id IN "
                 "(SELECT chat_id FROM chats WHERE user_id = ?)",
                 (user_id,),
             )
-            return self._db.execute(
+            count = self._db.execute(
                 "DELETE FROM chats WHERE user_id = ?", (user_id,)
             ).rowcount
+            self._db.execute(_ORPHANS)
+            return count
 
     # -- messages --------------------------------------------------------
 
@@ -669,21 +680,28 @@ class AppStore:
         meta: dict[str, Any],
         now: float,
     ) -> str:
-        """Appends a message; returns its id."""
+        """Appends a message to a chat that still exists; returns its id.
+
+        The check and the insert are one transaction, so a chat deleted
+        while it was being answered never keeps a message (issue #10).
+
+        Raises:
+            NotFound: If the chat does not exist (any more).
+        """
         message_id = uuid.uuid4().hex
-        self._write(
-            "INSERT INTO messages (message_id, chat_id, role, content, meta, "
-            "created) VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                message_id,
-                chat_id,
-                role,
-                self._seal(content),
-                json.dumps(meta),
-                now,
-            ),
-        )
-        self.touch_chat(chat_id, now)
+        row = (message_id, chat_id, role, self._seal(content), json.dumps(meta))
+        with self._lock, self._db:
+            added = self._db.execute(
+                "INSERT INTO messages (message_id, chat_id, role, content, "
+                "meta, created) SELECT ?, ?, ?, ?, ?, ? WHERE EXISTS "
+                "(SELECT 1 FROM chats WHERE chat_id = ?)",
+                (*row, now, chat_id),
+            ).rowcount
+            if not added:
+                raise NotFound(chat_id)
+            self._db.execute(
+                "UPDATE chats SET updated = ? WHERE chat_id = ?", (now, chat_id)
+            )
         return message_id
 
     def messages(self, chat_id: str) -> list[StoredMessage]:

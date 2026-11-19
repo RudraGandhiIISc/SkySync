@@ -25,11 +25,13 @@ RefusalReason = Literal[
     "access_check_failed",
     "gpus_full",
     "invalid_request",
+    "client_closed",
 ]
 """Why a request got no answer (fixed codes, never text).
 
 `invalid_request`: the body could not be parsed or failed validation (HTTP
-400 or 422).
+400 or 422). `client_closed`: the client went away before its answer was
+sent.
 """
 
 

@@ -272,7 +272,8 @@
        "access_check_timeout",
        "access_check_failed",
        "gpus_full",
-       "invalid_request"
+       "invalid_request",
+       "client_closed"
       ],
       "type": "string"
      },

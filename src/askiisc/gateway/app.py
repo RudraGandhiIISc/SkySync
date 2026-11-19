@@ -16,6 +16,7 @@ reopen it after (FR-2, NFR-10; issues #6 and #12).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import time
@@ -27,7 +28,7 @@ from typing import Any, Literal, Protocol
 from fastapi import FastAPI, Header, Request, Response
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.exceptions import HTTPException
 
@@ -70,6 +71,7 @@ from askiisc.gateway.cache import (
 from askiisc.gateway.drr import FairDispatcher
 from askiisc.gateway.limits import Admission, Ticket
 from askiisc.gateway.output_filter import filter_answer
+from askiisc.gateway.streams import ManagedStream
 from askiisc.llm.rag import Prepared, RagAnswerer
 from askiisc.observability.metrics import GatewayMetrics
 from askiisc.observability.stages import StageTimer
@@ -79,6 +81,8 @@ REQUEST_ID_HEADER = "X-Request-Id"
 HTTP_UNAVAILABLE = 503
 HTTP_BAD_REQUEST = 400
 HTTP_INVALID = 422
+HTTP_CLIENT_CLOSED = 499
+"""Request-log status of a request whose client left before its answer."""
 CALLER_KEY = "askiisc.caller"
 """Scope state: the (Caller, Origin) the session named, set by the web app."""
 GPUS_FULL_MESSAGE = (
@@ -557,10 +561,13 @@ async def _ask(
     session.handed_off = arrival.timer.now()
     if claim is not None:
         claim.used = True  # the stream releases the ticket
-    return StreamingResponse(
+    # The stream frees the ticket and writes the audit record however it
+    # ends, even if it never starts (FR-6, FR-12).
+    return ManagedStream(
         session.events(),
         media_type="text/event-stream",
         headers={REQUEST_ID_HEADER: session.request_id},
+        on_close=(session.abandon,),
     )
 
 
@@ -607,6 +614,7 @@ class _Session:
         self._generation: int | None = None
         # When the answer's stale flags were set (FR-5).
         self._flagged_at: float | None = None
+        self._closed = False
 
     @property
     def key(self) -> str | None:
@@ -651,13 +659,38 @@ class _Session:
             )
         except AskIIScError as err:
             yield sse("error", {"error": type(err).__name__})
+        except (asyncio.CancelledError, GeneratorExit):
+            self.status, self.reason = HTTP_CLIENT_CLOSED, "client_closed"
+            raise
         finally:
-            if self.ticket is not None:
-                self.deps.admission.release(
-                    self.ticket, completed=decision != "error"
-                )
-            self._finish_metrics(decision)
-            self.audit(decision, self.status)
+            self.close(decision)
+
+    def close(self, decision: Decision = "error") -> None:
+        """Frees the admission ticket and writes the audit record, once.
+
+        Args:
+            decision: The request's outcome.
+        """
+        if self._closed:
+            return
+        self._closed = True
+        if self.ticket is not None:
+            self.deps.admission.release(
+                self.ticket, completed=decision != "error"
+            )
+        self._finish_metrics(decision)
+        self.audit(decision, self.status)
+
+    def abandon(self) -> None:
+        """Closes a stream that ends without running to completion.
+
+        Its generator may never have started (the client left first, or
+        the route failed after building it), and then its `finally` never
+        runs: this frees the ticket and audits the request instead.
+        """
+        if not self._closed:
+            self.status, self.reason = HTTP_CLIENT_CLOSED, "client_closed"
+            self.close()
 
     async def _run(self) -> AsyncIterator[bytes]:
         if await self._from_cache():
