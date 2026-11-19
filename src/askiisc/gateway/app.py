@@ -5,7 +5,7 @@ cold-start hold -> fair queue -> LLM stream -> output filter -> audit.
 
 Events: `warming` (a GPU worker is starting), `token` (answer text),
 `answer` (final text and citations; replaces the streamed text),
-`error`. Rejections before streaming use HTTP 401, 403, 413 and 429.
+`error`. Rejections before streaming use HTTP 401, 403, 413, 422 and 429.
 Every response carries `X-Request-Id`, the id of its audit record (FR-12).
 """
 
@@ -17,11 +17,14 @@ import time
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
-from fastapi import FastAPI, Header, Response
+from fastapi import FastAPI, Header, Request, Response
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.exceptions import HTTPException
 
 from askiisc.access.client import AccessAPI
 from askiisc.access.policy import AccessFilter
@@ -65,9 +68,14 @@ from askiisc.gateway.output_filter import filter_answer
 from askiisc.llm.rag import Prepared, RagAnswerer
 from askiisc.observability.metrics import GatewayMetrics
 from askiisc.observability.stages import StageTimer
+from askiisc.observability.timing import ask_kind
 
 REQUEST_ID_HEADER = "X-Request-Id"
 HTTP_UNAVAILABLE = 503
+HTTP_BAD_REQUEST = 400
+HTTP_INVALID = 422
+CALLER_KEY = "askiisc.caller"
+"""Scope state: the (Caller, Origin) the session named, set by the web app."""
 GPUS_FULL_MESSAGE = (
     "All GPUs on the shared server are in use by other jobs, so no model "
     "worker can start. Please try again in a few minutes."
@@ -331,7 +339,98 @@ def create_app(deps: GatewayDeps) -> FastAPI:
     ) -> Response:
         return await _ask(deps, body, authorization, Origin())
 
+    @app.exception_handler(RequestValidationError)
+    async def invalid(
+        request: Request, exc: RequestValidationError
+    ) -> Response:
+        response = invalid_response(exc)
+        return audit_refused(deps, request, response, _question(exc.body))
+
+    @app.exception_handler(HTTPException)
+    async def http_error(request: Request, exc: HTTPException) -> Response:
+        response = await http_exception_handler(request, exc)
+        if exc.status_code != HTTP_BAD_REQUEST:  # a body it cannot parse
+            return response
+        return audit_refused(deps, request, response, "")
+
     return app
+
+
+def audit_refused(
+    deps: GatewayDeps, request: Request, response: Response, question: str
+) -> Response:
+    """Audits a question FastAPI refused before its route ran (FR-12).
+
+    FastAPI refuses a body it cannot parse (400) or validate (422: an
+    over-long or empty question, an unknown field, bad JSON) before the
+    route runs, so such refusals left no audit record (issue #14). Other
+    routes' responses pass through unchanged.
+
+    Args:
+        deps: The gateway's dependencies.
+        request: The refused request.
+        response: The refusal.
+        question: The question, if the body had one (only its salted
+            hash is stored).
+
+    Returns:
+        The refusal, with X-Request-Id on question routes.
+    """
+    kind = ask_kind(request.url.path)
+    if kind is None or request.method != "POST":
+        return response
+    caller, origin = _caller_of(deps, request, kind)
+    arrival = _arrive(deps)
+    body = AskRequest.model_construct(question=question, as_of=None, history=[])
+    session = _Session(deps, caller, body, None, None, arrival, origin)
+    session.audit("rejected", response.status_code, "invalid_request")
+    response.headers[REQUEST_ID_HEADER] = session.request_id
+    return response
+
+
+def invalid_response(exc: RequestValidationError) -> Response:
+    """FastAPI's 422 body without the rejected values, in plain ASCII.
+
+    The default echoes every bad value back: a NaN or infinite number then
+    broke the 422 itself (a 500), and a 9,000-character question came
+    straight back to the client. ASCII escapes keep a lone surrogate in a
+    field name from breaking the encoding.
+    """
+    detail = [
+        {
+            "type": e.get("type"),
+            "loc": list(e.get("loc", ())),
+            "msg": e.get("msg"),
+        }
+        for e in exc.errors()
+    ]
+    return Response(
+        json.dumps({"detail": detail}, ensure_ascii=True),
+        status_code=HTTP_INVALID,
+        media_type="application/json",
+    )
+
+
+def _caller_of(
+    deps: GatewayDeps, request: Request, kind: str
+) -> tuple[Caller, Origin]:
+    """Who sent a refused question: the web session, or the API token."""
+    named = request.scope.get("state", {}).get(CALLER_KEY)
+    if named is not None:
+        return named  # type: ignore[no-any-return]
+    if kind == "api":
+        header = request.headers.get("authorization")
+        try:
+            return deps.auth.authenticate(header), Origin()
+        except (AuthError, AccessDenied):
+            return ANONYMOUS, Origin()
+    return ANONYMOUS, Origin(kind)
+
+
+def _question(body: Any) -> str:
+    """The question field of a parsed body ("" if there is none)."""
+    question = body.get("question") if isinstance(body, dict) else None
+    return question if isinstance(question, str) else ""
 
 
 async def ask(
