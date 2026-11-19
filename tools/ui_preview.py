@@ -7,6 +7,10 @@ Run inside Slurm (slurm/ui_preview.sh does it and takes the screenshots):
 Everything is in memory or in a temporary folder: the fake gateway stack
 of the tests, a demo users tree, a few chats and some request-log rows.
 No real users, corpus or model. Logins all use tests.web_fixtures.PASSWORD.
+
+The stack's FakeClock follows wall time while the preview serves, so
+token buckets refill and sessions, cached answers and policy windows
+expire as they would on the server (issue #7).
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ import json
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +28,7 @@ import uvicorn
 from tests.access_fixtures import MATRIX
 from tests.web_fixtures import HDR, build_web
 
+from askiisc.common.clock import FakeClock
 from askiisc.gateway.app import RequestEvent
 from askiisc.web.documents import find_documents
 from askiisc.web.people import PeopleTree
@@ -201,11 +207,33 @@ def _system(now: float) -> dict[str, Any]:
     }  # fmt: skip
 
 
+CLOCK_TICK_S = 0.25
+"""How often the preview's clock catches up with wall time."""
+
+
+def catch_up(clock: FakeClock, wall: Callable[[], float] = time.time) -> None:
+    """Moves the stack's fake clock forward to wall time.
+
+    The preview runs the tests' stack, whose clock is a FakeClock. Set once
+    at start-up, it stood still: a department that had used its burst of
+    the token bucket (FR-6) was refused until a restart (issue #7), and
+    sessions, cached answers and policy windows never expired.
+    """
+    clock.advance(max(0.0, wall() - clock.now()))
+
+
+async def follow_wall_clock(clock: FakeClock) -> None:
+    """Keeps the preview's clock on wall time while it serves."""
+    while True:
+        catch_up(clock)
+        await asyncio.sleep(CLOCK_TICK_S)
+
+
 async def _main(port: int) -> None:
     tmp = Path(tempfile.mkdtemp(prefix="askiisc-ui-"))
     web = build_web(tmp)
     clock = web.stack.w.clock
-    clock.advance(time.time() - clock.now())
+    catch_up(clock)
     web.deps.system = lambda: _system(clock.now())
     catalogue = {
         d: {
@@ -238,7 +266,11 @@ async def _main(port: int) -> None:
         uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
     )
     print(f"ui preview on http://127.0.0.1:{port}", flush=True)
-    await server.serve()
+    ticker = asyncio.create_task(follow_wall_clock(clock))
+    try:
+        await server.serve()
+    finally:
+        ticker.cancel()
 
 
 if __name__ == "__main__":
