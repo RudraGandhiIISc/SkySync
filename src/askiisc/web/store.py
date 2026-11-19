@@ -15,12 +15,16 @@ only ever adding:
 
 `password_resets` holds the single-use links that set a password (an
 admin's invitation or a password reset), stored as SHA-256 hashes.
+Device tokens (a browser someone has signed in from) are Fernet tokens
+under a key derived from the server key; nothing about them is stored.
 """
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import hashlib
+import hmac
 import json
 import secrets
 import sqlite3
@@ -39,6 +43,8 @@ Status = Literal["pending", "active", "disabled"]
 Access = Literal["active", "revoked"]
 MAX_FAILED_LOGINS = 5
 LOCKOUT_S = 15 * 60.0
+DEVICE_TTL_S = 90 * 24 * 3600.0
+"""How long a browser stays known after a sign-in (web/throttle.py)."""
 _ORPHANS = (
     "DELETE FROM messages WHERE chat_id NOT IN (SELECT chat_id FROM chats)"
 )
@@ -170,6 +176,12 @@ def _hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def _derive(key: bytes, purpose: bytes) -> bytes:
+    """A Fernet key for one purpose, derived from the store's key."""
+    digest = hmac.new(key, purpose, hashlib.sha256).digest()
+    return base64.urlsafe_b64encode(digest)
+
+
 def load_key(path: Path) -> bytes:
     """Reads the encryption key, creating it (mode 600) on first use."""
     if not path.exists():
@@ -199,6 +211,7 @@ class AppStore:
                 "the chat encryption key is not a valid Fernet key; restore "
                 "chat.key from its backup (a new key cannot read old chats)"
             ) from err
+        self._device = Fernet(_derive(key, b"askiisc device cookie v1"))
         self._lock = threading.Lock()
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
@@ -227,6 +240,21 @@ class AppStore:
                 )
             if version < SCHEMA_VERSION:  # a newer release's file keeps its
                 self._db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+    def device_token(self, user_id: str, now: float) -> str:
+        """A token marking a browser that `user_id` signed in from."""
+        sealed = self._device.encrypt_at_time(user_id.encode(), int(now))
+        return sealed.decode()
+
+    def device_user(self, token: str, now: float) -> str | None:
+        """Who a device token was issued to, if it is genuine and recent."""
+        try:
+            plain = self._device.decrypt_at_time(
+                token.encode(), int(DEVICE_TTL_S), int(now)
+            )
+        except InvalidToken:
+            return None
+        return plain.decode()
 
     def schema_version(self) -> int:
         """The file's schema version."""
